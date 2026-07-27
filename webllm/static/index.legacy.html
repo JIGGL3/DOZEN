@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dozen — orchestrate every AI you already pay for</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        fontFamily: { sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"] },
+        colors: { ink: "#05060a" },
+        keyframes: {
+          fadeUp: { "0%": { opacity: 0, transform: "translateY(16px)" }, "100%": { opacity: 1, transform: "translateY(0)" } },
+          pop: { "0%": { opacity: 0, transform: "scale(.96)" }, "100%": { opacity: 1, transform: "scale(1)" } },
+          floatA: { "0%,100%": { transform: "translate(0,0) scale(1)" }, "50%": { transform: "translate(40px,-30px) scale(1.1)" } },
+          floatB: { "0%,100%": { transform: "translate(0,0) scale(1)" }, "50%": { transform: "translate(-50px,40px) scale(1.15)" } },
+          marquee: { "0%": { transform: "translateX(0)" }, "100%": { transform: "translateX(-50%)" } },
+          dash: { to: { "stroke-dashoffset": "-1000" } },
+          breathe: { "0%,100%": { opacity: .5 }, "50%": { opacity: 1 } },
+        },
+        animation: {
+          fadeUp: "fadeUp .6s cubic-bezier(.2,.8,.2,1) both",
+          pop: "pop .4s cubic-bezier(.2,.8,.2,1) both",
+          floatA: "floatA 18s ease-in-out infinite",
+          floatB: "floatB 22s ease-in-out infinite",
+          marquee: "marquee 32s linear infinite",
+        },
+      },
+    },
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-feature-settings: "cv11","ss01"; -webkit-font-smoothing: antialiased; }
+  .glass { backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
+  /* grid + grain overlay */
+  .bg-grid::before {
+    content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
+    background-image:
+      linear-gradient(to right, rgba(120,130,160,.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(120,130,160,.06) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(900px 600px at 50% -5%, black, transparent 75%);
+  }
+  .blob { position:fixed; z-index:-2; filter: blur(70px); border-radius:9999px; opacity:.55; pointer-events:none; }
+  .grad-text { background:linear-gradient(100deg,#a9b8ff,#7c8cff 35%,#45c08f 80%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .btn-primary { background:linear-gradient(135deg,#6c8cff,#5d7bff 45%,#45c08f); box-shadow:0 10px 30px -10px rgba(108,140,255,.7); }
+  .btn-primary:hover { filter:brightness(1.07); box-shadow:0 14px 40px -10px rgba(108,140,255,.85); }
+  .switch { width:46px; height:27px; border-radius:999px; position:relative; transition:.22s; flex:none; }
+  .switch::after { content:""; position:absolute; top:3px; left:3px; width:21px; height:21px; border-radius:50%; background:#fff; transition:.22s cubic-bezier(.2,.8,.2,1); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+  .switch.on::after { transform:translateX(19px); }
+  .card-sel { box-shadow:0 0 0 1.5px var(--accent), 0 24px 50px -24px var(--accent); }
+  .spinner { border:2px solid rgba(150,160,180,.3); border-top-color:currentColor; border-radius:50%; width:15px; height:15px; animation:spin 1s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  ::-webkit-scrollbar { width:11px; height:11px; }
+  ::-webkit-scrollbar-thumb { background:rgba(140,150,170,.28); border-radius:99px; border:3px solid transparent; background-clip:content-box; }
+  .answer { white-space:pre-wrap; }
+  .no-scroll { overflow:hidden; }
+  .reveal { opacity:0; transform:translateY(26px); transition:opacity .7s cubic-bezier(.2,.8,.2,1), transform .7s cubic-bezier(.2,.8,.2,1); }
+  .reveal.in { opacity:1; transform:none; }
+  .marquee-track { display:flex; width:max-content; animation:marquee 32s linear infinite; }
+  .marquee:hover .marquee-track { animation-play-state:paused; }
+  /* live progress terminal */
+  .log-term { background:
+      radial-gradient(800px 200px at 100% 0%, rgba(69,192,143,.06), transparent 60%),
+      radial-gradient(800px 240px at 0% 100%, rgba(108,140,255,.07), transparent 60%),
+      #06080d; }
+  .log-line { display:flex; gap:.55rem; padding:.16rem 0; align-items:baseline; animation:logIn .25s cubic-bezier(.2,.8,.2,1) both; }
+  .log-time { color:#4d586a; flex:none; font-size:11px; }
+  .log-ico  { flex:none; width:1.1em; text-align:center; }
+  .log-msg  { color:#c4cedd; word-break:break-word; white-space:pre-wrap; }
+  .log-line.s-start  .log-msg { color:#9db4ff; }
+  .log-line.s-waiting .log-msg { color:#f3c969; }
+  .log-line.s-done   .log-msg { color:#6ee7b7; }
+  .log-line.s-retry  .log-msg { color:#fbbf6b; }
+  .log-line.s-error  .log-msg, .log-line.s-cancelled .log-msg { color:#fb7185; }
+  .log-line.p-plan   .log-msg { color:#c4b5ff; }
+  .log-line.p-synthesize .log-msg { color:#a9b8ff; }
+  .log-line.p-result .log-msg { color:#6ee7b7; font-weight:600; }
+  @keyframes logIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+</style>
+</head>
+<body class="bg-grid bg-[#05060a] text-slate-100 dark:text-slate-100 antialiased selection:bg-indigo-500/30">
+
+<!-- ambient background blobs -->
+<div class="blob animate-floatA" style="top:-160px; left:-120px; width:520px; height:520px; background:radial-gradient(circle at 30% 30%, #6c8cff, transparent 60%)"></div>
+<div class="blob animate-floatB" style="top:120px; right:-160px; width:560px; height:560px; background:radial-gradient(circle at 60% 40%, #45c08f, transparent 60%)"></div>
+<div class="blob" style="bottom:-220px; left:30%; width:600px; height:600px; background:radial-gradient(circle, #8b5cf6, transparent 60%); opacity:.32"></div>
+
+<!-- ============ NAV ============ -->
+<header class="fixed top-0 inset-x-0 z-40">
+  <div class="max-w-7xl mx-auto px-5 mt-4">
+    <div class="glass bg-white/[.04] border border-white/10 rounded-2xl px-4 sm:px-5 h-16 flex items-center gap-4 shadow-2xl shadow-black/40">
+      <button onclick="go('home')" class="flex items-center gap-2.5 group">
+        <span class="h-9 w-9 rounded-xl grid place-items-center font-black text-white shadow-lg group-hover:scale-105 transition" style="background:linear-gradient(135deg,#6c8cff,#45c08f)">D</span>
+        <span class="font-extrabold tracking-tight text-lg">Dozen</span>
+      </button>
+
+      <nav class="hidden md:flex items-center gap-1 ml-2 text-sm font-medium text-slate-300">
+        <button onclick="go('home')" class="px-3 py-2 rounded-lg hover:bg-white/5 hover:text-white transition">Home</button>
+        <button onclick="openLibrary()" class="px-3 py-2 rounded-lg hover:bg-white/5 hover:text-white transition">Model Library</button>
+        <button onclick="openActive()" class="px-3 py-2 rounded-lg hover:bg-white/5 hover:text-white transition flex items-center gap-2">
+          My Active Models
+          <span id="nav-count" class="hidden text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">0</span>
+        </button>
+        <button onclick="go('console')" class="px-3 py-2 rounded-lg hover:bg-white/5 hover:text-white transition">Console</button>
+      </nav>
+
+      <div class="ml-auto flex items-center gap-2">
+        <button id="theme" onclick="toggleTheme()" class="h-9 w-9 grid place-items-center rounded-lg border border-white/10 hover:bg-white/5 transition" title="Toggle theme"><span id="theme-ico">☾</span></button>
+        <button id="cta" onclick="primaryCta()" class="btn-primary text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition">Get started</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ============ HOME / LANDING ============ -->
+  <section id="view-home">
+    <!-- HERO -->
+    <div class="max-w-7xl mx-auto px-5 pt-36 sm:pt-40 pb-16">
+      <div class="grid lg:grid-cols-2 gap-12 items-center">
+        <div class="animate-fadeUp">
+          <span class="inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full glass bg-white/5 border border-white/10 text-emerald-300">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            No API keys — uses the accounts you already pay for
+          </span>
+          <h1 class="mt-6 text-5xl sm:text-6xl font-black tracking-tight leading-[1.05]">
+            One prompt.<br /><span class="grad-text">Every model you own.</span>
+          </h1>
+          <p class="mt-6 text-lg text-slate-400 max-w-xl leading-relaxed">
+            Dozen is an orchestration layer that plans a task, routes each piece to the best assistant in your pool, and synthesizes one answer — driving ChatGPT, Claude, Gemini and more through your own logged-in web sessions.
+          </p>
+          <div class="mt-8 flex flex-wrap items-center gap-3">
+            <button onclick="openLibrary()" class="btn-primary text-white font-semibold px-6 py-3.5 rounded-xl transition">Build your model pool →</button>
+            <button onclick="scrollToId('how')" class="px-6 py-3.5 rounded-xl font-semibold border border-white/10 hover:bg-white/5 transition">See how it works</button>
+          </div>
+          <div class="mt-8 flex items-center gap-5 text-sm text-slate-500">
+            <div><span class="text-white font-bold text-lg" id="stat-count">13</span> models</div>
+            <div class="h-4 w-px bg-white/10"></div>
+            <div><span class="text-white font-bold text-lg">4</span> categories</div>
+            <div class="h-4 w-px bg-white/10"></div>
+            <div><span class="text-white font-bold text-lg">$0</span> in API credits</div>
+          </div>
+        </div>
+
+        <!-- product mock -->
+        <div class="animate-pop">
+          <div class="glass bg-white/[.04] border border-white/10 rounded-3xl p-5 shadow-2xl shadow-black/50">
+            <div class="flex items-center gap-2 mb-4">
+              <span class="h-3 w-3 rounded-full bg-rose-400/80"></span>
+              <span class="h-3 w-3 rounded-full bg-amber-400/80"></span>
+              <span class="h-3 w-3 rounded-full bg-emerald-400/80"></span>
+              <span class="ml-2 text-xs text-slate-500 font-mono">dozen://orchestrate</span>
+            </div>
+            <div class="rounded-xl bg-black/30 border border-white/10 p-4 font-mono text-[13px] leading-relaxed">
+              <div class="text-slate-500">$ task</div>
+              <div class="text-slate-200">"Research, draft & fact-check a launch memo."</div>
+            </div>
+            <div class="mt-4 flex items-center justify-between text-xs text-slate-400">
+              <span class="px-2 py-1 rounded-md bg-indigo-500/15 text-indigo-300 font-semibold">PLANNER</span>
+              <span>→ 3 subtasks · DAG</span>
+            </div>
+            <div id="mock-chips" class="mt-4 grid grid-cols-3 gap-2"></div>
+            <div class="mt-4 rounded-xl bg-gradient-to-br from-emerald-500/10 to-indigo-500/10 border border-white/10 p-4">
+              <div class="text-[11px] uppercase tracking-widest text-slate-500 mb-1">Synthesized answer</div>
+              <div class="space-y-1.5">
+                <div class="h-2 rounded bg-white/15 w-11/12"></div>
+                <div class="h-2 rounded bg-white/10 w-full"></div>
+                <div class="h-2 rounded bg-white/10 w-9/12"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- marquee of supported models -->
+    <div class="max-w-7xl mx-auto px-5 py-8">
+      <p class="text-center text-xs uppercase tracking-[0.2em] text-slate-500 mb-6">Drives the web UIs you already use</p>
+      <div class="marquee relative overflow-hidden [mask-image:linear-gradient(90deg,transparent,black_12%,black_88%,transparent)]">
+        <div id="marquee-track" class="marquee-track gap-3"></div>
+      </div>
+    </div>
+
+    <!-- FEATURES (bento) -->
+    <div class="max-w-7xl mx-auto px-5 py-20">
+      <div class="max-w-2xl reveal">
+        <h2 class="text-3xl sm:text-4xl font-black tracking-tight">Built like a team, not a chatbot.</h2>
+        <p class="mt-3 text-slate-400 text-lg">Dozen treats your assistants as specialists and conducts them.</p>
+      </div>
+      <div class="mt-10 grid md:grid-cols-3 gap-4">
+        <div class="reveal md:col-span-2 glass bg-white/[.04] border border-white/10 rounded-3xl p-7 hover:-translate-y-1 transition">
+          <div class="h-11 w-11 rounded-xl grid place-items-center bg-indigo-500/15 text-indigo-300 mb-4">⚙</div>
+          <h3 class="text-xl font-bold">Plan → Route → Verify → Synthesize</h3>
+          <p class="mt-2 text-slate-400">A planner decomposes your task into a dependency graph, a router sends each subtask to the strongest model for the job, a verifier checks the work, and a synthesizer stitches one coherent answer.</p>
+        </div>
+        <div class="reveal glass bg-white/[.04] border border-white/10 rounded-3xl p-7 hover:-translate-y-1 transition">
+          <div class="h-11 w-11 rounded-xl grid place-items-center bg-emerald-500/15 text-emerald-300 mb-4">🔑</div>
+          <h3 class="text-xl font-bold">Zero API keys</h3>
+          <p class="mt-2 text-slate-400">It logs into the same web apps you do. Your subscriptions, your sessions — kept on your machine.</p>
+        </div>
+        <div class="reveal glass bg-white/[.04] border border-white/10 rounded-3xl p-7 hover:-translate-y-1 transition">
+          <div class="h-11 w-11 rounded-xl grid place-items-center bg-fuchsia-500/15 text-fuchsia-300 mb-4">⚡</div>
+          <h3 class="text-xl font-bold">Parallel execution</h3>
+          <p class="mt-2 text-slate-400">Independent subtasks run concurrently across providers, then converge.</p>
+        </div>
+        <div class="reveal md:col-span-2 glass bg-white/[.04] border border-white/10 rounded-3xl p-7 hover:-translate-y-1 transition">
+          <div class="h-11 w-11 rounded-xl grid place-items-center bg-sky-500/15 text-sky-300 mb-4">🧩</div>
+          <h3 class="text-xl font-bold">Swappable pool, capability-aware routing</h3>
+          <p class="mt-2 text-slate-400">Add or remove models any time. The router weighs each provider's strengths — reasoning, coding, research, long-context — and picks per subtask.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- HOW IT WORKS -->
+    <div id="how" class="max-w-7xl mx-auto px-5 py-20">
+      <div class="text-center max-w-2xl mx-auto reveal">
+        <h2 class="text-3xl sm:text-4xl font-black tracking-tight">Live in three steps</h2>
+      </div>
+      <div class="mt-12 grid md:grid-cols-3 gap-5">
+        <div class="reveal relative glass bg-white/[.04] border border-white/10 rounded-3xl p-7">
+          <div class="text-6xl font-black text-white/5 absolute top-4 right-5">1</div>
+          <h3 class="text-lg font-bold">Pick your models</h3>
+          <p class="mt-2 text-slate-400">Open the Model Library and toggle on every assistant you have an account for.</p>
+        </div>
+        <div class="reveal relative glass bg-white/[.04] border border-white/10 rounded-3xl p-7">
+          <div class="text-6xl font-black text-white/5 absolute top-4 right-5">2</div>
+          <h3 class="text-lg font-bold">Log in once</h3>
+          <p class="mt-2 text-slate-400">A real browser window opens for each. Sign in (solve any captcha) and confirm — sessions persist.</p>
+        </div>
+        <div class="reveal relative glass bg-white/[.04] border border-white/10 rounded-3xl p-7">
+          <div class="text-6xl font-black text-white/5 absolute top-4 right-5">3</div>
+          <h3 class="text-lg font-bold">Orchestrate</h3>
+          <p class="mt-2 text-slate-400">Send one prompt in the Console and watch Dozen route it across your pool.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- CTA band -->
+    <div class="max-w-7xl mx-auto px-5 py-10">
+      <div class="reveal relative overflow-hidden rounded-3xl border border-white/10 p-10 sm:p-14 text-center glass bg-gradient-to-br from-indigo-500/10 via-transparent to-emerald-500/10">
+        <h2 class="text-3xl sm:text-4xl font-black tracking-tight">Ready to conduct your AI?</h2>
+        <p class="mt-3 text-slate-400 max-w-xl mx-auto">Build a pool from the models you already pay for. It takes about a minute.</p>
+        <button onclick="openLibrary()" class="btn-primary text-white font-semibold px-7 py-3.5 rounded-xl mt-7 transition">Open the Model Library →</button>
+      </div>
+    </div>
+
+    <footer class="max-w-7xl mx-auto px-5 py-10 mt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-slate-500">
+      <div class="flex items-center gap-2">
+        <span class="h-6 w-6 rounded-lg grid place-items-center font-black text-white text-xs" style="background:linear-gradient(135deg,#6c8cff,#45c08f)">D</span>
+        <span class="font-semibold text-slate-300">Dozen</span> · local web-automation orchestrator
+      </div>
+      <div>Inspired by learned model orchestration. Runs entirely on your machine.</div>
+    </footer>
+  </section>
+  <!-- ============ CONSOLE ============ -->
+  <section id="view-console" class="hidden">
+    <div class="max-w-6xl mx-auto px-5 pt-36 pb-24">
+      <div class="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="text-3xl sm:text-4xl font-black tracking-tight">Orchestration Console</h1>
+          <p class="mt-2 text-slate-400">One prompt, routed across your active pool.</p>
+        </div>
+        <button onclick="openActive()" class="px-4 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 transition text-sm font-semibold flex items-center gap-2">
+          Active pool <span id="console-pool-count" class="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">0</span>
+        </button>
+      </div>
+
+      <!-- empty state -->
+      <div id="console-empty" class="mt-10 glass bg-white/[.04] border border-dashed border-white/15 rounded-3xl p-12 text-center">
+        <div class="text-5xl mb-4">🪄</div>
+        <h3 class="text-xl font-bold">No active models yet</h3>
+        <p class="mt-2 text-slate-400">Add at least one model and log in to start orchestrating.</p>
+        <button onclick="openLibrary()" class="btn-primary text-white font-semibold px-6 py-3 rounded-xl mt-6 transition">Open Model Library</button>
+      </div>
+
+      <!-- runner -->
+      <div id="console-runner" class="hidden mt-8">
+        <div id="console-chips" class="flex flex-wrap gap-2 mb-4"></div>
+        <div class="grid lg:grid-cols-2 gap-5 items-start">
+          <!-- LEFT: prompt + result/chat history -->
+          <div class="space-y-5 min-w-0">
+            <div class="glass bg-white/[.04] border border-white/10 rounded-3xl p-6 shadow-2xl shadow-black/40">
+              <textarea id="prompt" rows="5" placeholder="e.g. Compare Postgres vs. MongoDB for a multi-tenant SaaS, then recommend one with justification."
+                class="w-full rounded-xl bg-black/30 border border-white/10 p-4 outline-none focus:ring-2 focus:ring-indigo-400/60 resize-y text-[15px] leading-relaxed placeholder:text-slate-600"></textarea>
+              <div class="mt-4 flex items-center gap-3">
+                <button onclick="runTask()" id="btn-run" class="btn-primary text-white font-semibold px-6 py-3 rounded-xl transition">Run orchestrator</button>
+                <button onclick="stopTask()" id="btn-stop" class="hidden text-white font-semibold px-6 py-3 rounded-xl transition bg-rose-600 hover:bg-rose-500 shadow-[0_10px_30px_-10px_rgba(244,63,94,.7)]">■ Stop</button>
+                <span id="run-status" class="text-sm text-slate-400"></span>
+              </div>
+              <div id="run-error" class="mt-3 text-sm text-rose-400"></div>
+            </div>
+            <div id="result"></div>
+          </div>
+
+          <!-- RIGHT: live progress terminal -->
+          <div class="rounded-2xl overflow-hidden border border-white/10 bg-[#06080d] shadow-2xl shadow-black/50 lg:sticky lg:top-28">
+            <div class="flex items-center gap-2 px-4 py-2.5 border-b border-white/10 bg-white/[.03]">
+              <span class="h-3 w-3 rounded-full bg-rose-400/80"></span>
+              <span class="h-3 w-3 rounded-full bg-amber-400/80"></span>
+              <span class="h-3 w-3 rounded-full bg-emerald-400/80"></span>
+              <span class="ml-2 text-xs font-mono text-slate-400">dozen://live-progress</span>
+              <span id="log-live" class="ml-auto hidden items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span> streaming
+              </span>
+              <button onclick="clearLog()" class="ml-2 text-[11px] text-slate-500 hover:text-slate-300 transition">clear</button>
+            </div>
+            <div id="log" class="log-term h-[480px] overflow-y-auto px-4 py-3 font-mono text-[12.5px] leading-relaxed">
+              <div class="log-empty text-slate-600">Waiting for a run — progress will stream here in real time.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ MODEL LIBRARY (full-screen modal) ============ -->
+<div id="library" class="fixed inset-0 z-50 hidden">
+  <div onclick="closeLibrary()" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <div class="absolute inset-0 sm:inset-6 lg:inset-x-24 lg:inset-y-10 glass bg-[#0a0c14]/90 border border-white/10 rounded-none sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-pop">
+    <div class="flex items-center gap-4 px-6 py-5 border-b border-white/10">
+      <div>
+        <h2 class="text-xl font-extrabold tracking-tight">Model Library</h2>
+        <p class="text-sm text-slate-400">Toggle a model to add it to your pool — a login window opens instantly.</p>
+      </div>
+      <div class="ml-auto flex items-center gap-3">
+        <div class="relative hidden sm:block">
+          <input id="lib-search" oninput="renderLibrary()" placeholder="Search models…"
+            class="w-56 bg-black/30 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-400/60 placeholder:text-slate-600" />
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">⌕</span>
+        </div>
+        <button onclick="closeLibrary()" class="h-9 w-9 grid place-items-center rounded-lg border border-white/10 hover:bg-white/5 transition">✕</button>
+      </div>
+    </div>
+    <div id="lib-body" class="flex-1 overflow-y-auto px-6 py-7 space-y-12"></div>
+    <div class="px-6 py-4 border-t border-white/10 flex items-center gap-4">
+      <div class="text-sm text-slate-400"><span id="lib-active-count" class="text-white font-bold">0</span> in your active pool</div>
+      <button onclick="openActive()" class="text-sm font-semibold text-indigo-300 hover:text-indigo-200 transition">Manage active →</button>
+      <button onclick="closeLibrary()" class="ml-auto btn-primary text-white font-semibold px-6 py-2.5 rounded-xl transition">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ACTIVE MODELS (side drawer) ============ -->
+<div id="drawer" class="fixed inset-0 z-50 hidden">
+  <div onclick="closeActive()" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+  <aside class="absolute right-0 top-0 h-full w-full sm:w-[440px] glass bg-[#0a0c14]/95 border-l border-white/10 shadow-2xl flex flex-col translate-x-full transition-transform duration-300" id="drawer-panel">
+    <div class="px-6 py-5 border-b border-white/10 flex items-center gap-3">
+      <div>
+        <h2 class="text-xl font-extrabold tracking-tight">My Active Models</h2>
+        <p class="text-sm text-slate-400">Connect, monitor & remove your pool.</p>
+      </div>
+      <button onclick="closeActive()" class="ml-auto h-9 w-9 grid place-items-center rounded-lg border border-white/10 hover:bg-white/5 transition">✕</button>
+    </div>
+
+    <div class="px-6 pt-5">
+      <div class="h-2 rounded-full bg-white/10 overflow-hidden">
+        <div id="drawer-progress" class="h-full rounded-full transition-all duration-500" style="width:0%;background:linear-gradient(90deg,#6c8cff,#45c08f)"></div>
+      </div>
+      <div id="drawer-progress-label" class="mt-2 text-xs text-slate-400">0 ready</div>
+    </div>
+
+    <div id="drawer-body" class="flex-1 overflow-y-auto px-6 py-5 space-y-3"></div>
+
+    <div class="px-6 py-4 border-t border-white/10 flex items-center gap-3">
+      <button onclick="openLibrary()" class="px-4 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 transition text-sm font-semibold">+ Add models</button>
+      <button id="drawer-console" onclick="closeActive(); go('console')" class="ml-auto btn-primary text-white font-semibold px-5 py-2.5 rounded-xl transition disabled:opacity-40" disabled>Open Console →</button>
+    </div>
+  </aside>
+</div>
+
+<!-- toast stack -->
+<div id="toasts" class="fixed bottom-5 right-5 z-[60] flex flex-col gap-2 w-[340px] max-w-[90vw]"></div>
+
+<script>
+const api = async (path, opts) => {
+  const res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || ("Request failed (" + res.status + ")"));
+  return data;
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function toast(msg, kind, withAction) {
+  const tones = {
+    ok: "border-emerald-400/30 text-emerald-200",
+    err: "border-rose-400/30 text-rose-200",
+    info: "border-white/15 text-slate-200",
+  };
+  const el = document.createElement("div");
+  el.className = `glass bg-[#0a0c14]/90 border ${tones[kind] || tones.info} rounded-2xl px-4 py-3 shadow-2xl animate-pop text-sm flex items-start gap-3`;
+  el.innerHTML = `<div class="flex-1 leading-snug">${msg}</div>` +
+    (withAction ? `<button class="text-indigo-300 font-semibold whitespace-nowrap hover:text-indigo-200">Open →</button>` : "");
+  if (withAction) el.querySelector("button").onclick = () => { openActive(); el.remove(); };
+  $("toasts").appendChild(el);
+  setTimeout(() => {
+    el.style.transition = "opacity .4s, transform .4s";
+    el.style.opacity = "0"; el.style.transform = "translateY(10px)";
+    setTimeout(() => el.remove(), 420);
+  }, withAction ? 7000 : 4200);
+}
+
+const S = {
+  catalog: [],
+  byKey: {},
+  active: {},        // key -> { status: 'connecting'|'ready'|'error', name }
+  view: "home",
+};
+
+/* ---------- theme ---------- */
+function toggleTheme() {
+  const root = document.documentElement;
+  const dark = root.classList.toggle("dark");
+  root.classList.toggle("light", !dark);
+  document.body.classList.toggle("bg-[#05060a]", dark);
+  document.body.classList.toggle("text-slate-100", dark);
+  document.body.classList.toggle("bg-slate-50", !dark);
+  document.body.classList.toggle("text-slate-800", !dark);
+  $("theme-ico").textContent = dark ? "☾" : "☀";
+}
+
+/* ---------- helpers ---------- */
+function tile(p, size) {
+  const s = size || "h-11 w-11 text-sm";
+  return `<div class="${s} rounded-xl grid place-items-center font-black text-white shadow-md shrink-0"
+    style="background:linear-gradient(135deg, ${p.color}, ${p.color}aa)">${p.short}</div>`;
+}
+const counts = () => {
+  const keys = Object.keys(S.active);
+  const ready = keys.filter(k => S.active[k].status === "ready");
+  return { total: keys.length, ready: ready.length, keys, readyKeys: ready };
+};
+
+/* ---------- navigation ---------- */
+function go(view) {
+  S.view = view;
+  $("view-home").classList.toggle("hidden", view !== "home");
+  $("view-console").classList.toggle("hidden", view !== "console");
+  if (view === "console") renderConsole();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function scrollToId(id) { $(id).scrollIntoView({ behavior: "smooth" }); }
+function primaryCta() {
+  const c = counts();
+  if (c.total === 0) return openLibrary();
+  if (c.ready > 0) return go("console");
+  return openActive();
+}
+
+/* ---------- model library ---------- */
+function openLibrary() { renderLibrary(); $("library").classList.remove("hidden"); document.body.classList.add("no-scroll"); }
+function closeLibrary() { $("library").classList.add("hidden"); document.body.classList.remove("no-scroll"); }
+
+function renderLibrary() {
+  const q = ($("lib-search").value || "").toLowerCase().trim();
+  const cats = [];
+  S.catalog.forEach(p => { if (!cats.includes(p.category)) cats.push(p.category); });
+  $("lib-body").innerHTML = cats.map(cat => {
+    const items = S.catalog.filter(p => p.category === cat &&
+      (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)));
+    if (!items.length) return "";
+    return `<section>
+      <div class="flex items-center gap-3 mb-4">
+        <h3 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-400">${cat}</h3>
+        <span class="text-xs text-slate-600">${items.length}</span>
+        <div class="flex-1 h-px bg-white/10"></div>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">${items.map(libCard).join("")}</div>
+    </section>`;
+  }).join("") || `<div class="text-center text-slate-500 py-20">No models match “${esc(q)}”.</div>`;
+  $("lib-active-count").textContent = counts().total;
+}
+
+function libCard(p) {
+  const a = S.active[p.key];
+  const on = !!a;
+  const sub = on ? (a.status === "ready" ? "Ready ✓" : a.status === "error" ? "Needs attention" : "Waiting for login…") : p.description;
+  const subCls = on ? (a.status === "ready" ? "text-emerald-400" : a.status === "error" ? "text-rose-400" : "text-amber-400") : "text-slate-400";
+  return `<div onclick="toggleModel('${p.key}')" style="--accent:${p.color}"
+      class="group cursor-pointer rounded-2xl p-4 glass bg-white/[.03] border border-white/10 hover:-translate-y-0.5 transition ${on ? "card-sel" : ""}">
+      <div class="flex items-start gap-3">
+        ${tile(p)}
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold truncate">${p.name}</div>
+          <div class="text-[13px] mt-0.5 leading-snug ${subCls}">${esc(sub)}</div>
+        </div>
+        <div class="switch ${on ? "on" : ""}" style="background:${on ? p.color : "rgba(120,130,150,.3)"}"></div>
+      </div>
+    </div>`;
+}
+
+async function toggleModel(key) {
+  if (S.active[key]) return removeProvider(key);   // toggling off = remove
+  const p = S.byKey[key];
+  // Optimistic: show it as connecting immediately.
+  S.active[key] = { status: "connecting", name: p.name };
+  renderLibrary(); renderDrawer(); updateUI();
+  try {
+    const r = await api("/api/models/start-login", {
+      method: "POST", body: JSON.stringify({ provider: key }),
+    });
+    S.active[key].status = r.status || "connecting";
+    if (r.status === "ready") {
+      toast(`<b>${esc(p.name)}</b> is already signed in — ready ✓`, "ok");
+    } else if (r.status === "error") {
+      toast(`<b>${esc(p.name)}</b>: ${esc(r.error || "couldn't open the login window")}`, "err");
+    } else {
+      toast(`<b>${esc(p.name)}</b> — a login window opened. Sign in, then Confirm.`, "info", true);
+    }
+  } catch (e) {
+    S.active[key].status = "error";
+    toast(`<b>${esc(p.name)}</b>: ${esc(e.message)}`, "err");
+  }
+  renderLibrary(); renderDrawer(); updateUI();
+}
+
+/* ---------- active drawer ---------- */
+function openActive() { renderDrawer(); $("drawer").classList.remove("hidden"); document.body.classList.add("no-scroll");
+  requestAnimationFrame(() => $("drawer-panel").classList.remove("translate-x-full")); refreshActive(); }
+function closeActive() { $("drawer-panel").classList.add("translate-x-full"); document.body.classList.remove("no-scroll");
+  setTimeout(() => $("drawer").classList.add("hidden"), 280); }
+
+function renderDrawer() {
+  const c = counts();
+  const body = $("drawer-body");
+  if (c.total === 0) {
+    body.innerHTML = `<div class="text-center text-slate-500 py-16">
+      <div class="text-4xl mb-3">📭</div>Your pool is empty.<br/>Add models from the library.</div>`;
+  } else {
+    body.innerHTML = c.keys.map(drawerRow).join("");
+  }
+  $("drawer-progress").style.width = c.total ? (c.ready / c.total * 100) + "%" : "0%";
+  $("drawer-progress-label").textContent = `${c.ready} of ${c.total} ready`;
+  $("drawer-console").disabled = c.ready === 0;
+}
+
+function drawerRow(key) {
+  const p = S.byKey[key], a = S.active[key];
+  const pill = {
+    connecting: ['<span class="spinner align-[-2px]"></span> Waiting for login…', "text-amber-300 bg-amber-500/10"],
+    ready: ["● Ready", "text-emerald-300 bg-emerald-500/10"],
+    error: ["▲ Action needed", "text-rose-300 bg-rose-500/10"],
+  }[a.status] || ["Idle", "text-slate-300 bg-white/5"];
+  const confirmBtn = a.status === "ready" ? "" :
+    `<button onclick="confirmProvider('${key}')" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-white/10 hover:bg-white/5 transition">Confirm login</button>`;
+  return `<div id="row-${key}" class="rounded-2xl p-4 glass bg-white/[.03] border border-white/10 animate-pop">
+    <div class="flex items-center gap-3">
+      ${tile(p, "h-10 w-10 text-sm")}
+      <div class="min-w-0 flex-1">
+        <div class="font-semibold truncate">${p.name}</div>
+        <span class="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${pill[1]}">${pill[0]}</span>
+      </div>
+      <button onclick="removeProvider('${key}')" title="Remove" class="h-9 w-9 grid place-items-center rounded-lg border border-white/10 text-slate-400 hover:text-rose-400 hover:border-rose-400/40 hover:bg-rose-500/5 transition">🗑</button>
+    </div>
+    ${confirmBtn ? `<div class="mt-3">${confirmBtn}</div>` : ""}
+  </div>`;
+}
+
+async function confirmProvider(key) {
+  const p = S.byKey[key];
+  if (S.active[key]) S.active[key].status = "connecting";
+  renderDrawer();
+  try {
+    const r = await api("/api/models/confirm-login", {
+      method: "POST", body: JSON.stringify({ provider: key }),
+    });
+    S.active[key].status = r.ready ? "ready" : "error";
+    toast(r.ready
+      ? `<b>${esc(p.name)}</b> is ready ✓ — added to the pool.`
+      : `<b>${esc(p.name)}</b>: not signed in yet. Finish logging in, then retry.`,
+      r.ready ? "ok" : "err");
+  } catch (e) {
+    S.active[key].status = "error";
+    toast(`<b>${esc(p.name)}</b>: ${esc(e.message)}`, "err");
+  }
+  renderDrawer(); renderLibrary(); updateUI();
+}
+
+async function removeProvider(key) {
+  const name = S.byKey[key] ? S.byKey[key].name : key;
+  try {
+    await api("/api/models/" + encodeURIComponent(key), { method: "DELETE" });
+  } catch (e) { /* still drop it locally */ }
+  delete S.active[key];
+  renderDrawer(); renderLibrary(); updateUI();
+  toast(`<b>${esc(name)}</b> removed from your pool.`, "info");
+}
+
+async function refreshActive() {
+  try {
+    const r = await api("/api/active");
+    (r.status ? Object.keys(r.status) : []).forEach(k => {
+      if (!S.byKey[k]) return;
+      const st = r.status[k];
+      S.active[k] = { status: st.logged_in ? "ready" : (S.active[k] && S.active[k].status === "error" ? "error" : "connecting"), name: st.name };
+    });
+    renderDrawer(); renderLibrary(); updateUI();
+  } catch (e) {}
+}
+
+/* ---------- console ---------- */
+function renderConsole() {
+  const c = counts();
+  $("console-empty").classList.toggle("hidden", c.ready > 0);
+  $("console-runner").classList.toggle("hidden", c.ready === 0);
+  $("console-pool-count").textContent = c.ready;
+  $("console-chips").innerHTML = c.readyKeys.map(k => {
+    const p = S.byKey[k];
+    return `<span class="inline-flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full glass bg-white/[.04] border border-white/10 text-sm font-medium">${tile(p, "h-6 w-6 text-[10px]")}${p.name}</span>`;
+  }).join("");
+}
+
+// The live SSE connection for the in-flight run, plus a guard so we only
+// finish a run once (terminal event vs. dropped connection).
+let logSource = null;
+let runFinished = true;
+
+function setRunning(on) {
+  $("btn-run").classList.toggle("hidden", on);
+  $("btn-stop").classList.toggle("hidden", !on);
+  $("btn-run").disabled = on;
+  $("log-live").classList.toggle("hidden", !on);
+  $("log-live").classList.toggle("flex", on);
+}
+
+/* ---------- live progress log ---------- */
+function clearLog() {
+  $("log").innerHTML = '<div class="log-empty text-slate-600">Waiting for a run — progress will stream here in real time.</div>';
+}
+
+function appendLog(ev) {
+  const log = $("log");
+  const empty = log.querySelector(".log-empty");
+  if (empty) empty.remove();
+  const t = new Date().toLocaleTimeString([], { hour12: false });
+  const line = document.createElement("div");
+  line.className = `log-line s-${ev.status || "log"} p-${ev.phase || "log"}`;
+  line.innerHTML =
+    `<span class="log-time">${t}</span>` +
+    `<span class="log-msg">${esc(ev.message || "")}</span>`;
+  // Auto-scroll to the bottom only if the user is already near it.
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  log.appendChild(line);
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+function handleEvent(ev) {
+  appendLog(ev);
+  if (ev.phase === "result") {
+    finishRun(ev.result || null);
+  } else if (ev.phase === "error") {
+    $("run-error").textContent = ev.message || "Run failed.";
+    finishRun(null);
+  }
+}
+
+function finishRun(result) {
+  if (runFinished) return;
+  runFinished = true;
+  if (logSource) { logSource.close(); logSource = null; }
+  setRunning(false);
+  $("run-status").textContent = "";
+  if (result) {
+    if (result.cancelled) toast("Orchestration stopped.", "info");
+    renderResult(result);
+  }
+}
+
+async function runTask() {
+  const prompt = $("prompt").value.trim();
+  $("run-error").textContent = ""; $("result").innerHTML = "";
+  if (!prompt) { $("run-error").textContent = "Enter a task prompt."; return; }
+
+  setRunning(true);
+  runFinished = false;
+  clearLog();
+  $("run-status").innerHTML = '<span class="spinner align-[-2px]"></span> Orchestrating across your models…';
+
+  let runId;
+  try {
+    await api("/api/orchestrator/ready", { method: "POST" }).catch(() => {});
+    const r = await api("/api/run", { method: "POST", body: JSON.stringify({ prompt }) });
+    runId = r.run_id;
+  } catch (e) {
+    $("run-error").textContent = e.message;
+    runFinished = true;
+    setRunning(false);
+    $("run-status").textContent = "";
+    return;
+  }
+
+  // Open the Server-Sent Events stream and render updates as they arrive.
+  logSource = new EventSource(`/api/run/${runId}/events`);
+  logSource.onmessage = (e) => {
+    try { handleEvent(JSON.parse(e.data)); } catch (_) {}
+  };
+  logSource.onerror = () => {
+    // The stream dropped before a terminal event (e.g. server closed early).
+    if (!runFinished) {
+      appendLog({ icon: "⚠️", status: "error", message: "Live stream disconnected." });
+      finishRun(null);
+    }
+  };
+}
+
+async function stopTask() {
+  $("btn-stop").disabled = true;
+  $("run-status").innerHTML = '<span class="spinner align-[-2px]"></span> Stopping…';
+  appendLog({ icon: "🛑", status: "cancelled", message: "Stop requested — cancelling…" });
+  // Trip the backend cancellation token (halts observers, prompt injection and
+  // pending model generations). The run will emit its terminal event, which
+  // closes the stream via finishRun().
+  try { await api("/api/stop", { method: "POST" }); } catch (e) {}
+  $("btn-stop").disabled = false;
+}
+
+function renderResult(r) {
+  let html = `<div class="glass bg-white/[.04] border border-white/10 rounded-3xl p-6 shadow-xl animate-fadeUp">`;
+  if (r.error) html += `<div class="text-rose-400 text-sm mb-3">${esc(r.error)}</div>`;
+  html += `<div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-3">Final answer</div>
+    <div class="answer leading-relaxed text-[15px]">${esc(r.final_answer || "(no answer)")}</div></div>`;
+  const subs = r.summary && r.summary.subtasks;
+  if (subs && subs.length) {
+    html += `<div class="mt-5 glass bg-white/[.04] border border-white/10 rounded-3xl p-5 overflow-x-auto">
+      <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 mb-3">Execution trace</div>
+      <table class="w-full text-sm"><thead class="text-slate-500 text-xs"><tr>
+        <th class="text-left font-medium py-1.5">Subtask</th><th class="text-left font-medium">Model &amp; why chosen</th>
+        <th class="text-left font-medium">Status</th><th class="text-left font-medium">Score</th><th class="text-left font-medium">Time</th>
+      </tr></thead><tbody>` +
+      subs.map(s => `<tr class="border-t border-white/10 align-top">
+        <td class="py-2 pr-3">${esc(s.title)}</td>
+        <td class="pr-3">
+          <span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 text-xs font-medium">${esc(s.agent)}</span>
+          ${s.reasoning ? `<div class="mt-1 max-w-[280px] text-[11px] leading-snug text-slate-500" title="${esc(s.reasoning)}">${esc(s.reasoning)}</div>` : ""}
+        </td>
+        <td class="pr-3">${esc(s.status)}</td>
+        <td class="pr-3">${typeof s.score === "number" ? s.score.toFixed(2) : s.score}</td>
+        <td class="text-slate-500">${s.duration_s}s</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  }
+  $("result").innerHTML = html;
+}
+
+/* ---------- shared UI refresh ---------- */
+function updateUI() {
+  const c = counts();
+  const nav = $("nav-count");
+  nav.textContent = c.total;
+  nav.classList.toggle("hidden", c.total === 0);
+  const cta = $("cta");
+  if (c.total === 0) cta.textContent = "Get started";
+  else if (c.ready > 0) cta.textContent = "Open Console";
+  else cta.textContent = "Manage models";
+  if (S.view === "console") renderConsole();
+}
+
+/* ---------- decorative renders ---------- */
+function renderMarquee() {
+  const items = S.catalog.map(p => `
+    <div class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl glass bg-white/[.03] border border-white/10 whitespace-nowrap">
+      ${tile(p, "h-7 w-7 text-[10px]")}<span class="text-sm font-medium text-slate-300">${p.name}</span>
+    </div>`).join("");
+  $("marquee-track").innerHTML = items + items; // duplicate for seamless loop
+  // hero mock chips
+  $("mock-chips").innerHTML = S.catalog.slice(0, 3).map((p, i) => `
+    <div class="rounded-xl glass bg-white/[.04] border border-white/10 p-3 text-center" style="animation:breathe 2.4s ease-in-out ${i * 0.4}s infinite">
+      ${tile(p, "h-8 w-8 text-[10px] mx-auto")}
+      <div class="mt-2 text-[11px] text-slate-400 truncate">${p.name}</div>
+    </div>`).join("");
+}
+
+function initReveal() {
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeLibrary(); closeActive(); }
+});
+
+/* ---------- init ---------- */
+(async function init() {
+  initReveal();
+  try {
+    const data = await api("/api/providers");
+    S.catalog = data.providers;
+    S.catalog.forEach(p => (S.byKey[p.key] = p));
+    $("stat-count").textContent = S.catalog.length;
+    renderMarquee();
+    await refreshActive();   // restore any already-open sessions
+    updateUI();
+  } catch (e) {
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

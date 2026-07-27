@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dozen — orchestrate every AI you already pay for</title>
+<style>
+/* ============================================================
+   DOZEN app UI — flame-on-night. Self-contained: no CDNs.
+   ============================================================ */
+:root{
+  --bg:#07060a;
+  --bg2:#0d0b12;
+  --panel:#0b0910;
+  --surface:rgba(255,255,255,.04);
+  --surface-2:rgba(255,255,255,.07);
+  --line:rgba(244,240,234,.10);
+  --line-2:rgba(244,240,234,.18);
+  --ink:#f4f0ea;
+  --muted:#a79fb0;
+  --faint:#6e6678;
+  --flame:#ff5c38;
+  --flame-soft:rgba(255,92,56,.14);
+  --ember:#ffb84d;
+  --star:#8fb8ff;
+  --ok:#5ee08a;
+  --err:#fb7185;
+  --grad-flame:linear-gradient(92deg,#ff5c38 8%,#ff8a3d 48%,#ffb84d 94%);
+  --font-display:"Bahnschrift","Avenir Next Condensed","Arial Narrow","Roboto Condensed",sans-serif;
+  --font-body:system-ui,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  --font-mono:"Cascadia Code","SF Mono","JetBrains Mono",Consolas,"Liberation Mono",monospace;
+  --r-card:20px;
+  --nav-h:64px;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:110px}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--font-body);font-size:16px;line-height:1.6;
+  overflow-x:hidden;-webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--flame);color:#140a06}
+a{color:inherit}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea{font:inherit;color:var(--ink)}
+:focus-visible{outline:2px solid var(--ember);outline-offset:3px;border-radius:6px}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:rgba(167,159,176,.25);border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,138,61,.45);border:3px solid transparent;background-clip:content-box}
+
+/* utilities the JS relies on */
+.hidden{display:none!important}
+.flex{display:flex!important}
+.no-scroll{overflow:hidden}
+.answer{white-space:pre-wrap}
+
+.container{width:min(1200px,94vw);margin-inline:auto}
+
+/* ---------- ambient ---------- */
+#stars{position:fixed;inset:0;width:100%;height:100%;z-index:-2;pointer-events:none}
+.nebula{position:fixed;border-radius:50%;filter:blur(90px);pointer-events:none;z-index:-2;opacity:.5}
+.nebula-a{width:46vw;height:46vw;top:-20vw;right:-12vw;background:radial-gradient(circle,rgba(255,92,56,.15),transparent 65%)}
+.nebula-b{width:40vw;height:40vw;bottom:-18vw;left:-14vw;background:radial-gradient(circle,rgba(143,184,255,.09),transparent 65%)}
+
+/* ---------- type ---------- */
+.display{
+  font-family:var(--font-display);font-stretch:86%;font-weight:700;
+  text-transform:uppercase;letter-spacing:.01em;line-height:.98;text-wrap:balance;margin:0;
+}
+.grad-text{background:var(--grad-flame);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+.eyebrow{
+  font-family:var(--font-mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ember);display:inline-flex;align-items:center;gap:10px;margin:0 0 16px;
+}
+.eyebrow::before{content:"";width:24px;height:1px;background:var(--ember);opacity:.7}
+
+/* ---------- buttons ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:12px 22px;border-radius:999px;font-weight:600;font-size:14.5px;line-height:1;
+  text-decoration:none;white-space:nowrap;
+  transition:transform .25s cubic-bezier(.2,.7,.2,1),box-shadow .25s,background .25s,border-color .25s,filter .25s;
+}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn-flame{
+  background:var(--grad-flame);color:#1c0d05;
+  box-shadow:0 6px 22px -6px rgba(255,110,56,.55),inset 0 1px 0 rgba(255,255,255,.35);
+}
+.btn-flame:hover{transform:translateY(-2px);box-shadow:0 12px 30px -8px rgba(255,110,56,.7),inset 0 1px 0 rgba(255,255,255,.35)}
+.btn-ghost{border:1px solid var(--line-2);background:rgba(255,255,255,.02)}
+.btn-ghost:hover{border-color:var(--ember);background:var(--surface);transform:translateY(-2px)}
+.btn-stop{background:#e11d48;color:#fff;box-shadow:0 10px 30px -10px rgba(244,63,94,.7)}
+.btn-stop:hover{background:#f43f5e}
+.mini-btn{
+  font-size:12px;font-weight:600;padding:7px 14px;border-radius:9px;
+  border:1px solid var(--line-2);color:var(--muted);transition:color .25s,border-color .25s,background .25s;
+}
+.mini-btn:hover{color:var(--ink);border-color:var(--ember);background:var(--flame-soft)}
+
+/* ---------- nav ---------- */
+.nav{position:fixed;top:0;left:0;right:0;z-index:40;padding-top:14px}
+.nav-bar{
+  height:var(--nav-h);display:flex;align-items:center;gap:14px;padding:0 14px 0 18px;
+  border:1px solid var(--line);border-radius:18px;
+  background:rgba(11,9,16,.72);backdrop-filter:blur(18px) saturate(150%);
+  box-shadow:0 20px 50px -20px rgba(0,0,0,.7);
+}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-stretch:87%;font-weight:700;font-size:19px;letter-spacing:.06em;text-transform:uppercase}
+.logo-mark{width:28px;height:28px;flex:none}
+.logo-mark .tick{fill:var(--ink);opacity:.85}
+.logo-mark .hot{fill:var(--flame)}
+.nav-links{display:flex;align-items:center;gap:2px;margin-left:8px}
+.nav-links button{
+  padding:9px 14px;border-radius:11px;font-size:14px;font-weight:500;color:var(--muted);
+  transition:color .25s,background .25s;display:flex;align-items:center;gap:8px;
+}
+.nav-links button:hover{color:var(--ink);background:var(--surface)}
+.count-pill{
+  font-family:var(--font-mono);font-size:11px;font-weight:700;
+  padding:2px 7px;border-radius:999px;background:rgba(94,224,138,.15);color:var(--ok);
+}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+/* ---------- hero ---------- */
+.hero{padding:150px 0 60px}
+.hero-grid{display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(32px,4vw,60px);align-items:center}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:9px;
+  font-family:var(--font-mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ok);border:1px solid var(--line);border-radius:999px;padding:8px 16px;
+  background:rgba(255,255,255,.02);
+}
+.hero-badge i{width:7px;height:7px;border-radius:50%;background:var(--ok);animation:pulseDot 2.2s ease-in-out infinite}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 rgba(94,224,138,.5)}50%{box-shadow:0 0 0 6px rgba(94,224,138,0)}}
+.hero h1{font-size:clamp(2.9rem,5.6vw,4.6rem);margin:22px 0 0}
+.hero-sub{color:var(--muted);max-width:56ch;margin:20px 0 0;font-size:1.05rem}
+.hero-actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px}
+.hero-stats{display:flex;align-items:center;gap:20px;margin-top:32px;font-size:13.5px;color:var(--faint)}
+.hero-stats b{
+  display:block;font-family:var(--font-display);font-stretch:87%;font-size:22px;
+  color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.1;
+}
+.hero-stats .vr{width:1px;height:30px;background:var(--line)}
+.fade-up{opacity:0;transform:translateY(24px);animation:riseIn .8s cubic-bezier(.2,.7,.2,1) forwards}
+.fade-up.d1{animation-delay:.12s}
+@keyframes riseIn{to{opacity:1;transform:none}}
+
+/* ---------- product mock ---------- */
+.mock{
+  border-radius:22px;border:1px solid var(--line-2);
+  background:rgba(15,13,20,.8);backdrop-filter:blur(12px);padding:20px;
+  box-shadow:0 30px 80px -28px rgba(0,0,0,.8),0 0 80px -34px rgba(255,92,56,.35);
+}
+.mock-bar{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.dot{width:11px;height:11px;border-radius:50%}
+.dot-r{background:#ff5f57}.dot-y{background:#febc2e}.dot-g{background:#28c840}
+.mock-addr{margin-left:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--faint);letter-spacing:.06em}
+.mock-task{
+  border-radius:13px;background:rgba(0,0,0,.35);border:1px solid var(--line);
+  padding:15px;font-family:var(--font-mono);font-size:13px;line-height:1.7;
+}
+.mock-task .t-dim{color:var(--faint)}
+.mock-meta{display:flex;align-items:center;justify-content:space-between;margin-top:15px;font-size:12px;color:var(--muted)}
+.tag{
+  font-family:var(--font-mono);font-size:10.5px;font-weight:700;letter-spacing:.14em;
+  padding:4px 10px;border-radius:7px;background:var(--flame-soft);color:var(--ember);
+  border:1px solid rgba(255,138,61,.3);
+}
+.mock-chips{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-top:15px}
+.mock-chip{
+  border-radius:13px;border:1px solid var(--line);background:var(--surface);
+  padding:12px 10px;text-align:center;
+}
+.mock-chip .mc-name{margin-top:8px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.breathe{animation:breathe 2.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+.mock-answer{
+  margin-top:15px;border-radius:13px;padding:15px;
+  border:1px solid var(--line);
+  background:linear-gradient(135deg,rgba(255,92,56,.08),rgba(143,184,255,.07));
+}
+.mock-answer .label{font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin-bottom:9px}
+.skel{height:8px;border-radius:4px;background:rgba(244,240,234,.14);margin-top:7px}
+.skel.w1{width:92%}.skel.w2{width:100%;opacity:.7}.skel.w3{width:74%;opacity:.7}
+
+/* ---------- marquee ---------- */
+.mq-label{text-align:center;font-family:var(--font-mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--faint);margin:0 0 22px}
+/* The provider track is populated asynchronously (after /api/providers), so its
+   height is content-driven. Reserve exactly one card row (48px) on the clipped
+   viewport itself so it can NEVER collapse into a one-pixel strip under the
+   heading during the load flash or if the fetch fails — matches the populated
+   height, so there is no layout shift when the cards arrive. */
+.marquee{min-height:48px;overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.marquee-track{display:flex;gap:12px;width:max-content;animation:slideX 32s linear infinite;padding-right:12px}
+.marquee:hover .marquee-track{animation-play-state:paused}
+@keyframes slideX{to{transform:translateX(-50%)}}
+.mq-item{
+  display:flex;align-items:center;gap:10px;white-space:nowrap;
+  padding:9px 16px 9px 9px;border-radius:13px;border:1px solid var(--line);
+  background:var(--surface);font-size:13.5px;font-weight:500;color:var(--muted);
+}
+
+/* ---------- sections ---------- */
+.sec{padding:70px 0}
+.sec-head{max-width:620px;margin-bottom:38px}
+.sec-head.center{margin-inline:auto;text-align:center}
+.sec-head h2{font-size:clamp(1.9rem,3.6vw,2.7rem)}
+.sec-head p{color:var(--muted);margin:12px 0 0;font-size:1.02rem}
+
+/* ---------- bento ---------- */
+.bento{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.bcard{
+  position:relative;border-radius:var(--r-card);padding:26px;overflow:hidden;
+  background:var(--surface);border:1px solid var(--line);
+  transition:transform .35s cubic-bezier(.2,.7,.2,1),border-color .35s,background .35s;
+}
+.bcard:hover{transform:translateY(-4px);border-color:rgba(255,138,61,.35);background:var(--surface-2)}
+.bcard.wide{grid-column:span 2}
+.bcard-ic{
+  width:40px;height:40px;border-radius:12px;display:grid;place-items:center;margin-bottom:16px;
+  background:var(--flame-soft);border:1px solid rgba(255,138,61,.3);color:var(--ember);
+  font-size:17px;
+}
+.bcard h3{margin:0 0 8px;font-size:18px;font-weight:650}
+.bcard p{margin:0;color:var(--muted);font-size:14.5px}
+
+/* ---------- steps ---------- */
+.steps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.step-card{
+  position:relative;border-radius:var(--r-card);padding:26px;overflow:hidden;
+  background:var(--surface);border:1px solid var(--line);
+  transition:transform .35s,border-color .35s;
+}
+.step-card:hover{transform:translateY(-4px);border-color:rgba(255,138,61,.35)}
+.step-ghost{
+  position:absolute;top:2px;right:14px;font-family:var(--font-display);font-stretch:80%;
+  font-weight:700;font-size:76px;line-height:1;color:transparent;
+  -webkit-text-stroke:1px rgba(255,138,61,.22);user-select:none;
+}
+.step-card h3{margin:0 0 8px;font-size:17px;font-weight:650}
+.step-card p{margin:0;color:var(--muted);font-size:14.5px;max-width:34ch}
+
+/* ---------- CTA band ---------- */
+.cta-band{
+  position:relative;overflow:hidden;text-align:center;
+  border:1px solid var(--line);border-radius:26px;padding:56px 28px;
+  background:
+    radial-gradient(600px 220px at 20% 0%,rgba(255,92,56,.12),transparent 60%),
+    radial-gradient(600px 220px at 80% 100%,rgba(143,184,255,.09),transparent 60%),
+    var(--surface);
+}
+.cta-band h2{font-size:clamp(1.9rem,3.6vw,2.7rem)}
+.cta-band p{color:var(--muted);max-width:46ch;margin:12px auto 28px}
+
+/* ---------- footer ---------- */
+.footer{
+  border-top:1px solid var(--line);margin-top:40px;padding:34px 0;
+  display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;
+  color:var(--faint);font-size:13.5px;
+}
+.footer .fbrand{display:flex;align-items:center;gap:9px;color:var(--muted);font-weight:600}
+
+/* ---------- console ---------- */
+.console-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+.console-head h1{font-size:clamp(2rem,4vw,2.9rem)}
+.console-head .sub{color:var(--muted);margin:10px 0 0}
+.empty-state{
+  margin-top:36px;border:1px dashed var(--line-2);border-radius:24px;
+  background:var(--surface);padding:56px 28px;text-align:center;
+}
+.empty-state .glyph{
+  width:58px;height:58px;margin:0 auto 18px;border-radius:18px;display:grid;place-items:center;
+  background:var(--flame-soft);border:1px solid rgba(255,138,61,.3);color:var(--ember);font-size:24px;
+}
+.empty-state h3{margin:0 0 8px;font-size:19px}
+.empty-state p{margin:0 0 24px;color:var(--muted)}
+
+.runner-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:stretch;margin-top:20px}
+/* prompt panel matches the terminal's height; textarea absorbs the extra space */
+.prompt-panel{display:flex;flex-direction:column;min-width:0}
+.prompt-panel #prompt{flex:1}
+/* result spans the full container width below the grid */
+#result:not(:empty){margin-top:18px}
+.panel{
+  border-radius:var(--r-card);border:1px solid var(--line);
+  background:rgba(15,13,20,.7);backdrop-filter:blur(10px);padding:22px;
+  box-shadow:0 24px 60px -30px rgba(0,0,0,.7);
+}
+.pool-chips{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 2px}
+.pool-chip{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:5px 13px 5px 6px;border-radius:999px;border:1px solid var(--line);
+  background:var(--surface);font-size:13px;font-weight:500;
+}
+#prompt{
+  width:100%;border-radius:13px;background:rgba(0,0,0,.35);border:1px solid var(--line);
+  padding:15px;resize:none;font-size:15px;line-height:1.65;outline:none;
+  transition:border-color .25s,box-shadow .25s;min-height:200px;
+}
+#prompt::placeholder{color:var(--faint)}
+#prompt:focus{border-color:rgba(255,138,61,.55);box-shadow:0 0 0 3px rgba(255,122,61,.15)}
+.run-row{display:flex;align-items:center;gap:14px;margin-top:16px;flex-wrap:wrap}
+.run-status{font-size:13.5px;color:var(--muted);display:inline-flex;align-items:center;gap:8px}
+.run-error{margin-top:10px;font-size:13.5px;color:var(--err)}
+.spinner{
+  border:2px solid rgba(167,159,176,.3);border-top-color:var(--ember);border-radius:50%;
+  width:14px;height:14px;animation:spin 1s linear infinite;display:inline-block;vertical-align:-2px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* result */
+.result-label{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin-bottom:12px}
+.result-answer{font-size:15px;line-height:1.75}
+/* structured (markdown) answer rendering */
+.md p{margin:0 0 12px}
+.md p:last-child{margin-bottom:0}
+.md h3,.md h4,.md h5{
+  font-family:var(--font-display);font-stretch:87%;font-weight:700;
+  text-transform:uppercase;letter-spacing:.02em;line-height:1.15;margin:24px 0 10px;
+}
+.md h3:first-child,.md h4:first-child,.md h5:first-child{margin-top:0}
+.md h3{font-size:26px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.md h4{font-size:20px}
+.md h5{font-size:16px;color:var(--ember);letter-spacing:.06em}
+.md .md-tablewrap{overflow-x:auto;margin:0 0 16px;border:1px solid var(--line);border-radius:12px}
+.md table{border-collapse:collapse;width:100%;font-size:14px}
+.md th{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ember);font-weight:600;background:rgba(255,184,77,.06);
+}
+.md th,.md td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line)}
+.md tr:last-child td{border-bottom:0}
+.md td{color:var(--muted)}
+.md td:first-child{color:var(--ink)}
+.md ul,.md ol{margin:0 0 14px;padding-left:24px;display:grid;gap:7px}
+.md li::marker{color:var(--ember)}
+.md strong{color:var(--ink);font-weight:650}
+.md em{color:var(--muted)}
+.md code{
+  font-family:var(--font-mono);font-size:.88em;color:var(--ember);
+  background:rgba(255,184,77,.1);border:1px solid rgba(255,184,77,.22);
+  border-radius:5px;padding:1.5px 6px;
+}
+.md pre{background:#0b0910;border:1px solid var(--line-2);border-radius:12px;padding:14px 16px;overflow-x:auto;margin:0 0 14px}
+.md pre code{background:none;border:0;padding:0;color:#c9c2d1;font-size:12.5px;line-height:1.7}
+.md blockquote{
+  margin:0 0 12px;padding:8px 16px;color:var(--muted);
+  border-left:2px solid var(--ember);background:var(--flame-soft);border-radius:0 10px 10px 0;
+}
+.md hr{border:0;height:1px;background:var(--line);margin:18px 0}
+.trace-wrap{overflow-x:auto}
+.trace-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.trace-table th{
+  text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--faint);font-weight:500;padding:0 12px 10px 0;white-space:nowrap;
+}
+.trace-table td{border-top:1px solid var(--line);padding:10px 12px 10px 0;vertical-align:top}
+.trace-table .why{margin-top:4px;max-width:280px;font-size:11.5px;line-height:1.5;color:var(--faint)}
+.agent-pill{
+  display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:600;
+  padding:3px 10px;border-radius:999px;background:rgba(143,184,255,.12);color:var(--star);white-space:nowrap;
+}
+.num{font-variant-numeric:tabular-nums}
+
+/* live log terminal */
+.log-shell{
+  border-radius:18px;overflow:hidden;border:1px solid var(--line-2);background:var(--panel);
+  box-shadow:0 24px 60px -30px rgba(0,0,0,.8),0 0 60px -34px rgba(255,92,56,.3);
+  position:sticky;top:100px;
+  display:flex;flex-direction:column;
+}
+.log-bar{
+  display:flex;align-items:center;gap:8px;padding:11px 15px;
+  border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);
+}
+.log-addr{margin-left:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--faint);letter-spacing:.06em}
+#log-live{margin-left:auto;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;color:var(--ok)}
+#log-live i{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:pulseDot 1.8s infinite}
+.log-clear{margin-left:10px;font-family:var(--font-mono);font-size:11px;color:var(--faint);transition:color .25s}
+.log-clear:hover{color:var(--ink)}
+#log{
+  /* Fixed height, always: content scrolls inside; the panel never grows. */
+  height:540px;flex:none;min-height:0;overflow-y:auto;padding:14px 16px;
+  font-family:var(--font-mono);font-size:12.5px;line-height:1.7;
+  background:
+    radial-gradient(700px 200px at 100% 0%,rgba(255,184,77,.05),transparent 60%),
+    radial-gradient(700px 240px at 0% 100%,rgba(255,92,56,.06),transparent 60%),
+    var(--panel);
+}
+.log-empty{color:var(--faint)}
+.log-line{display:flex;gap:.6rem;padding:.16rem 0;align-items:baseline;animation:logIn .25s cubic-bezier(.2,.8,.2,1) both}
+.log-time{color:#584f63;flex:none;font-size:10.5px}
+.log-msg{color:#c9c2d1;word-break:break-word;white-space:pre-wrap}
+.log-line.s-start .log-msg{color:var(--star)}
+.log-line.s-waiting .log-msg{color:var(--ember)}
+.log-line.s-done .log-msg{color:var(--ok)}
+.log-line.s-retry .log-msg{color:#fbbf6b}
+.log-line.s-error .log-msg,.log-line.s-cancelled .log-msg{color:var(--err)}
+.log-line.p-plan .log-msg{color:#c4b5ff}
+.log-line.p-synthesize .log-msg{color:var(--star)}
+.log-line.p-result .log-msg{color:var(--ok);font-weight:600}
+@keyframes logIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* ---------- provider tiles ---------- */
+.tile-badge{
+  border-radius:11px;display:grid;place-items:center;font-weight:800;color:#fff;
+  flex:none;box-shadow:0 4px 14px -4px rgba(0,0,0,.5);
+}
+.t-md{width:44px;height:44px;font-size:14px}
+.t-sm{width:38px;height:38px;font-size:13px}
+.t-xs{width:26px;height:26px;font-size:10px;border-radius:8px}
+.t-mq{width:28px;height:28px;font-size:10px;border-radius:9px}
+
+/* ---------- library modal ---------- */
+.overlay{position:fixed;inset:0;z-index:50}
+.overlay-bg{position:absolute;inset:0;background:rgba(4,3,7,.72);backdrop-filter:blur(5px)}
+.modal{
+  position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  background:rgba(12,10,17,.96);border:1px solid var(--line-2);
+  box-shadow:0 40px 120px -30px rgba(0,0,0,.9);
+}
+@media (min-width:640px){.modal{inset:24px;border-radius:24px}}
+@media (min-width:1024px){.modal{inset:40px 96px}}
+.modal-head{display:flex;align-items:center;gap:16px;padding:20px 24px;border-bottom:1px solid var(--line)}
+.modal-head h2{font-size:1.5rem;margin:0}
+.modal-head .sub{font-size:13.5px;color:var(--muted);margin:3px 0 0}
+.search-wrap{position:relative;display:none}
+@media (min-width:640px){.search-wrap{display:block}}
+#lib-search{
+  width:230px;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:12px;
+  padding:9px 12px 9px 34px;font-size:13.5px;outline:none;transition:border-color .25s,box-shadow .25s;
+}
+#lib-search::placeholder{color:var(--faint)}
+#lib-search:focus{border-color:rgba(255,138,61,.55);box-shadow:0 0 0 3px rgba(255,122,61,.15)}
+.search-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:13px}
+.icon-btn{
+  width:36px;height:36px;border-radius:11px;border:1px solid var(--line);display:grid;place-items:center;
+  color:var(--muted);transition:color .25s,border-color .25s,background .25s;flex:none;
+}
+.icon-btn:hover{color:var(--ink);border-color:var(--line-2);background:var(--surface)}
+.modal-body{flex:1;overflow-y:auto;padding:26px 24px;display:grid;gap:40px;align-content:start}
+.lib-cat-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.lib-cat-head h3{
+  margin:0;font-family:var(--font-mono);font-size:11.5px;font-weight:600;
+  letter-spacing:.2em;text-transform:uppercase;color:var(--muted);
+}
+.lib-cat-head .n{font-family:var(--font-mono);font-size:11px;color:var(--faint)}
+.lib-cat-head .rule{flex:1;height:1px;background:var(--line)}
+.lib-grid{display:grid;gap:12px;grid-template-columns:1fr}
+@media (min-width:640px){.lib-grid{grid-template-columns:1fr 1fr}}
+@media (min-width:1024px){.lib-grid{grid-template-columns:1fr 1fr 1fr}}
+.lib-card{
+  cursor:pointer;border-radius:16px;padding:15px;border:1px solid var(--line);background:var(--surface);
+  transition:transform .25s,border-color .25s,background .25s,box-shadow .25s;
+}
+.lib-card:hover{transform:translateY(-2px);background:var(--surface-2)}
+.lib-card.card-sel{box-shadow:0 0 0 1.5px var(--accent),0 22px 46px -22px var(--accent)}
+.lib-card-row{display:flex;align-items:flex-start;gap:12px}
+.lib-name{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-sub{font-size:12.5px;margin-top:3px;line-height:1.5}
+.c-muted{color:var(--muted)}.c-ok{color:var(--ok)}.c-err{color:var(--err)}.c-wait{color:var(--ember)}
+.switch{width:44px;height:26px;border-radius:999px;position:relative;transition:.22s;flex:none;margin-top:2px}
+.switch::after{
+  content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
+  background:#fff;transition:.22s cubic-bezier(.2,.8,.2,1);box-shadow:0 1px 4px rgba(0,0,0,.4);
+}
+.switch.on::after{transform:translateX(18px)}
+.modal-foot{display:flex;align-items:center;gap:16px;padding:15px 24px;border-top:1px solid var(--line)}
+.modal-foot .info{font-size:13.5px;color:var(--muted)}
+.modal-foot .info b{color:var(--ink)}
+.link-btn{font-size:13.5px;font-weight:600;color:var(--ember);transition:color .25s}
+.link-btn:hover{color:var(--flame)}
+.lib-none{text-align:center;color:var(--faint);padding:70px 0}
+
+/* ---------- drawer ---------- */
+.drawer-panel{
+  position:absolute;right:0;top:0;height:100%;width:100%;max-width:440px;
+  background:rgba(12,10,17,.97);border-left:1px solid var(--line-2);
+  display:flex;flex-direction:column;
+  transition:transform .3s cubic-bezier(.2,.7,.2,1);
+  box-shadow:-30px 0 90px -30px rgba(0,0,0,.8);
+}
+.translate-x-full{transform:translateX(100%)}
+.drawer-head{padding:20px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+.drawer-head h2{font-size:1.4rem;margin:0}
+.drawer-head .sub{font-size:13px;color:var(--muted);margin:3px 0 0}
+.drawer-progress-wrap{padding:18px 24px 0}
+.progress-track{height:7px;border-radius:99px;background:var(--surface-2);overflow:hidden}
+#drawer-progress{
+  height:100%;border-radius:99px;background:var(--grad-flame);
+  transition:width .5s cubic-bezier(.2,.7,.2,1);
+  box-shadow:0 0 14px rgba(255,110,56,.5);
+}
+#drawer-progress-label{margin-top:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);letter-spacing:.06em}
+#drawer-body{flex:1;overflow-y:auto;padding:18px 24px;display:grid;gap:11px;align-content:start}
+.pool-row{border-radius:16px;padding:14px;border:1px solid var(--line);background:var(--surface)}
+.pool-row-main{display:flex;align-items:center;gap:12px}
+.pool-name{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;margin-top:5px;
+  font-family:var(--font-mono);font-size:10.5px;font-weight:600;letter-spacing:.04em;
+  padding:3px 10px;border-radius:999px;
+}
+.pool-why{margin-top:6px;font-size:12px;line-height:1.45;color:var(--err);word-break:break-word}
+.pill-ok{color:var(--ok);background:rgba(94,224,138,.12)}
+.pill-wait{color:var(--ember);background:rgba(255,184,77,.12)}
+.pill-err{color:var(--err);background:rgba(251,113,133,.12)}
+.pill-idle{color:var(--muted);background:var(--surface-2)}
+.remove-btn{
+  width:34px;height:34px;border-radius:10px;border:1px solid var(--line);display:grid;place-items:center;
+  color:var(--faint);flex:none;transition:color .25s,border-color .25s,background .25s;font-size:14px;
+}
+.remove-btn:hover{color:var(--err);border-color:rgba(251,113,133,.4);background:rgba(251,113,133,.08)}
+.drawer-empty{text-align:center;color:var(--faint);padding:56px 0;line-height:1.8}
+.drawer-empty .glyph{font-size:30px;opacity:.7;margin-bottom:8px}
+.drawer-foot{padding:15px 24px;border-top:1px solid var(--line);display:flex;align-items:center;gap:12px}
+
+/* ---------- toasts ---------- */
+/* top-right, under the nav — never overlaps the Model Library's Done button */
+#toasts{position:fixed;top:calc(var(--nav-h) + 28px);right:20px;z-index:60;display:flex;flex-direction:column;gap:9px;width:340px;max-width:90vw}
+.toast{
+  border-radius:15px;padding:13px 15px;font-size:13.5px;line-height:1.5;
+  background:rgba(12,10,17,.94);backdrop-filter:blur(14px);
+  border:1px solid var(--line-2);display:flex;align-items:flex-start;gap:12px;
+  box-shadow:0 20px 50px -18px rgba(0,0,0,.8);
+}
+.toast b{color:var(--ink)}
+.t-ok{border-color:rgba(94,224,138,.35);color:#c7f2d6}
+.t-err{border-color:rgba(251,113,133,.35);color:#ffd4dc}
+.t-info{color:var(--muted)}
+.toast-act{font-weight:600;color:var(--ember);white-space:nowrap;transition:color .25s}
+.toast-act:hover{color:var(--flame)}
+
+/* ---------- backend-offline banner ---------- */
+.offline-banner{
+  position:sticky;top:var(--nav-h);z-index:55;
+  margin:0 auto;max-width:1200px;width:calc(100% - 40px);
+  display:flex;align-items:center;gap:12px;
+  padding:12px 16px;border-radius:14px;font-size:13.5px;line-height:1.5;
+  color:#ffd4dc;background:rgba(30,12,16,.95);backdrop-filter:blur(14px);
+  border:1px solid rgba(251,113,133,.4);
+  box-shadow:0 20px 50px -18px rgba(0,0,0,.8);
+}
+.offline-banner.hidden{display:none}
+.offline-banner b{color:var(--ink)}
+.offline-banner .dot{
+  width:9px;height:9px;border-radius:50%;background:var(--err);flex:none;
+  animation:pulseErr 1.8s ease-in-out infinite;
+}
+@keyframes pulseErr{0%,100%{opacity:1}50%{opacity:.35}}
+.offline-retry{
+  margin-left:auto;flex:none;font-weight:600;color:var(--ember);
+  border:1px solid rgba(255,138,61,.35);border-radius:999px;padding:6px 14px;
+  transition:color .25s,border-color .25s,background .25s;
+}
+.offline-retry:hover{color:var(--flame);border-color:rgba(255,138,61,.6);background:rgba(255,138,61,.08)}
+
+/* ---------- animations shared ---------- */
+.animate-pop{animation:pop .4s cubic-bezier(.2,.8,.2,1) both}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+.animate-fadeUp{animation:riseIn .6s cubic-bezier(.2,.8,.2,1) both}
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .7s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+
+/* ---------- mission strip (rocket flight) ---------- */
+.mission{
+  position:relative;height:92px;border:1px solid var(--line);border-radius:16px;
+  overflow:hidden;margin:14px 0 18px;
+  background:
+    radial-gradient(420px 90px at 85% 130%,rgba(143,184,255,.08),transparent 70%),
+    radial-gradient(420px 90px at 15% -40%,rgba(255,92,56,.09),transparent 70%),
+    linear-gradient(180deg,#0a0810,#070609);
+}
+.m-stars{
+  position:absolute;inset:0;opacity:.55;
+  background-image:
+    radial-gradient(1px 1px at 12% 26%,rgba(244,240,234,.8),transparent 55%),
+    radial-gradient(1px 1px at 38% 68%,rgba(244,240,234,.6),transparent 55%),
+    radial-gradient(1.5px 1.5px at 61% 22%,rgba(143,184,255,.7),transparent 55%),
+    radial-gradient(1px 1px at 82% 54%,rgba(244,240,234,.65),transparent 55%),
+    radial-gradient(1px 1px at 94% 80%,rgba(255,184,77,.6),transparent 55%);
+  background-size:240px 92px;background-repeat:repeat;
+  animation:starScroll 9s linear infinite;animation-play-state:paused;
+}
+@keyframes starScroll{to{background-position:-240px 0}}
+.m-stars.s2{opacity:.3;background-size:340px 92px;animation-name:starScroll2;animation-duration:16s}
+@keyframes starScroll2{to{background-position:-340px 0}}
+.mission.running .m-stars{animation-play-state:running}
+
+.m-belt{position:absolute;inset:0;width:200%;animation:belt 30s linear infinite;animation-play-state:paused}
+.mission.running .m-belt{animation-play-state:running}
+@keyframes belt{to{transform:translateX(-50%)}}
+.m-planet{position:absolute;border-radius:50%}
+.m-planet.p1{width:36px;height:36px;top:16%;left:14%;background:radial-gradient(circle at 32% 30%,#ffd08a,#c96a3a 58%,#5a2c1c)}
+.m-planet.p1::after{
+  content:"";position:absolute;left:-9px;right:-9px;top:46%;height:8px;border-radius:50%;
+  border:1.5px solid rgba(255,184,77,.55);transform:rotate(-16deg);
+}
+.m-planet.p2{width:13px;height:13px;top:58%;left:30%;background:radial-gradient(circle at 35% 30%,#bcd4ff,#4f74c9 60%,#1d2a52)}
+.m-planet.p3{width:24px;height:24px;top:28%;left:41%;background:radial-gradient(circle at 35% 30%,#b9a8c9,#6e5a85 60%,#2c2138)}
+.m-planet.p3::before{content:"";position:absolute;width:6px;height:6px;border-radius:50%;left:5px;top:9px;background:rgba(0,0,0,.28)}
+.m-planet.p3::after{content:"";position:absolute;width:4px;height:4px;border-radius:50%;left:14px;top:5px;background:rgba(0,0,0,.24)}
+.m-rock{position:absolute;width:5px;height:5px;border-radius:2px;background:#54495f;transform:rotate(24deg)}
+.m-rock.r1{top:70%;left:22%}
+.m-rock.r2{top:20%;left:47%;width:4px;height:4px}
+.m-planet.p1.b2{left:64%}.m-planet.p2.b2{left:80%}.m-planet.p3.b2{left:91%}
+.m-rock.r1.b2{left:72%}.m-rock.r2.b2{left:97%}
+
+.m-dest{
+  position:absolute;right:-24px;top:50%;transform:translateY(-50%);
+  width:52px;height:52px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#a9f2c4,#3f9a68 55%,#173a2a);
+  opacity:.28;transition:opacity .6s;
+}
+.mission.done .m-dest{opacity:1;animation:destGlow 1.6s ease-in-out infinite}
+@keyframes destGlow{0%,100%{box-shadow:0 0 18px rgba(94,224,138,.35)}50%{box-shadow:0 0 36px rgba(94,224,138,.7)}}
+
+.m-lines i{position:absolute;height:1px;width:64px;opacity:0;background:linear-gradient(90deg,transparent,rgba(255,184,77,.7))}
+.m-lines i:nth-child(1){top:24%}.m-lines i:nth-child(2){top:52%}.m-lines i:nth-child(3){top:76%}
+.mission.running .m-lines i{animation:zoomLine 1.15s linear infinite}
+.mission.running .m-lines i:nth-child(2){animation-delay:.4s}
+.mission.running .m-lines i:nth-child(3){animation-delay:.8s}
+@keyframes zoomLine{0%{left:105%;opacity:0}12%{opacity:.8}70%{opacity:.6}100%{left:-70px;opacity:0}}
+
+.m-rocket{position:absolute;left:7%;top:50%;transform:translateY(-50%);transition:left .9s cubic-bezier(.2,.7,.2,1)}
+.mission.done .m-rocket{left:78%}
+.m-bob{position:relative;animation:mBob 3.4s ease-in-out infinite}
+.mission.running .m-bob{animation-duration:1.6s}
+@keyframes mBob{0%,100%{transform:translateY(3px)}50%{transform:translateY(-3px)}}
+.mission.abort .m-bob{animation:mShake .55s cubic-bezier(.2,.8,.2,1)}
+@keyframes mShake{0%,100%{transform:none}25%{transform:translate(-2px,2px) rotate(-5deg)}50%{transform:translate(2px,-1px) rotate(4deg)}75%{transform:translate(-1px,1px) rotate(-2deg)}}
+.m-ship{width:30px;height:30px;color:var(--ink);transform:rotate(45deg);filter:drop-shadow(0 0 10px rgba(255,110,56,.35));transition:color .4s}
+.mission.running .m-ship{color:#fff;filter:drop-shadow(0 0 14px rgba(255,110,56,.7))}
+.mission.abort .m-ship{color:var(--err)}
+.m-flame{
+  position:absolute;right:100%;top:50%;width:26px;height:7px;margin-right:-5px;
+  transform:translateY(-50%);border-radius:99px;opacity:0;transform-origin:right center;
+  background:linear-gradient(270deg,#ffb84d,#ff5c38 55%,transparent);filter:blur(.5px);
+  transition:opacity .3s;
+}
+.mission.running .m-flame{opacity:1;animation:flick .22s ease-in-out infinite}
+@keyframes flick{0%,100%{transform:translateY(-50%) scaleX(.72)}50%{transform:translateY(-50%) scaleX(1.2)}}
+
+.m-status{
+  position:absolute;left:12px;bottom:8px;display:flex;align-items:center;gap:7px;
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);
+}
+.m-dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+.mission.running .m-status{color:var(--ember)}
+.mission.running .m-dot{background:var(--ember);animation:pulseDot 1.6s infinite}
+.mission.done .m-status{color:var(--ok)}
+.mission.done .m-dot{background:var(--ok)}
+.mission.abort .m-status{color:var(--err)}
+.mission.abort .m-dot{background:var(--err)}
+
+/* ---------- entrance choreography ---------- */
+@keyframes riseIn2{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
+.entering .console-head{animation:riseIn2 .55s cubic-bezier(.2,.7,.2,1) both}
+.entering .empty-state{animation:riseIn2 .55s .12s cubic-bezier(.2,.7,.2,1) both}
+.entering .pool-chips{animation:riseIn2 .5s .06s cubic-bezier(.2,.7,.2,1) both}
+.entering .mission{animation:riseIn2 .5s .14s cubic-bezier(.2,.7,.2,1) both}
+.entering .runner-grid>div:first-child{animation:riseIn2 .55s .22s cubic-bezier(.2,.7,.2,1) both}
+.entering .runner-grid>.log-shell{animation:riseIn2 .55s .3s cubic-bezier(.2,.7,.2,1) both}
+.entering .hero-grid>div:first-child{animation:riseIn2 .55s cubic-bezier(.2,.7,.2,1) both}
+.entering .hero-grid>div:last-child{animation:riseIn2 .55s .12s cubic-bezier(.2,.7,.2,1) both}
+
+.pool-chip{animation:chipIn .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:var(--d,0s)}
+@keyframes chipIn{from{opacity:0;transform:translateY(8px) scale(.92)}to{opacity:1;transform:none}}
+.pool-row{animation:rowIn .5s cubic-bezier(.2,.8,.2,1) both;animation-delay:var(--d,0s)}
+@keyframes rowIn{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+.modal-body.fresh .lib-card{animation:cardIn .5s cubic-bezier(.2,.8,.2,1) both;animation-delay:var(--d,0s)}
+@keyframes cardIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+.overlay-bg{animation:fadeIn .35s both}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.switch.on::after{animation:knobPop .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes knobPop{0%{transform:translateX(18px) scale(.6)}60%{transform:translateX(18px) scale(1.15)}100%{transform:translateX(18px) scale(1)}}
+.empty-state .glyph{animation:gBob 4.5s ease-in-out infinite}
+@keyframes gBob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-7px) rotate(3deg)}}
+.tile-badge{transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.lib-card:hover .tile-badge{transform:scale(1.08) rotate(-4deg)}
+.log-shell{transition:border-color .5s}
+.log-shell.run{border-color:rgba(255,138,61,.5);animation:shellPulse 2.4s ease-in-out infinite}
+@keyframes shellPulse{
+  0%,100%{box-shadow:0 24px 60px -30px rgba(0,0,0,.8),0 0 40px -22px rgba(255,92,56,.45)}
+  50%{box-shadow:0 24px 60px -30px rgba(0,0,0,.8),0 0 70px -22px rgba(255,92,56,.85)}
+}
+
+/* ---------- responsive ---------- */
+@media (max-width:1020px){
+  .hero-grid{grid-template-columns:1fr}
+  .runner-grid{grid-template-columns:1fr}
+  .log-shell{position:static}
+  .bento{grid-template-columns:1fr 1fr}
+  .bcard.wide{grid-column:span 2}
+  .steps-grid{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  .nav-links{display:none}
+  .bento{grid-template-columns:1fr}
+  .bcard.wide{grid-column:span 1}
+  .hero{padding-top:120px}
+  #log{height:390px}
+}
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}
+  html{scroll-behavior:auto}
+  .fade-up,.reveal{opacity:1;transform:none}
+  .marquee-track{animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="nebula nebula-a" aria-hidden="true"></div>
+<div class="nebula nebula-b" aria-hidden="true"></div>
+
+<!-- ============ NAV ============ -->
+<header class="nav">
+  <div class="container">
+    <div class="nav-bar">
+      <button onclick="go('home')" class="logo" aria-label="Dozen — home">
+        <svg class="logo-mark" viewBox="0 0 30 30" aria-hidden="true">
+          <g><rect x="14" y="1" width="2" height="6" rx="1" class="hot"/></g>
+          <g transform="rotate(30 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(60 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(90 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(120 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(150 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(180 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(210 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(240 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(270 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(300 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(330 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+        </svg>
+        Dozen
+      </button>
+
+      <nav class="nav-links" aria-label="Primary">
+        <button onclick="go('home')">Home</button>
+        <button onclick="openLibrary()">Model Library</button>
+        <button onclick="openActive()">My Active Models
+          <span id="nav-count" class="count-pill hidden">0</span>
+        </button>
+        <button onclick="go('console')">Console</button>
+      </nav>
+
+      <div class="nav-right">
+        <button id="cta" onclick="primaryCta()" class="btn btn-flame">Get started</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Backend-unreachable banner. The API being down used to surface only as a
+     per-model "Failed to fetch" toast, which reads like a model problem; this
+     names the real cause once, at the top, and offers a retry. -->
+<div id="offline-banner" class="offline-banner hidden" role="alert">
+  <span class="dot"></span>
+  <div>
+    <b>Can&rsquo;t reach the Dozen server.</b>
+    <span id="offline-detail"></span>
+  </div>
+  <button onclick="retryBackend()" class="offline-retry">Retry</button>
+</div>
+
+<main>
+  <!-- ============ HOME ============ -->
+  <section id="view-home">
+    <div class="container hero">
+      <div class="hero-grid">
+        <div class="fade-up">
+          <span class="hero-badge"><i></i>No API keys — uses the accounts you already pay for</span>
+          <h1 class="display">One prompt.<br /><span class="grad-text">Every model you own.</span></h1>
+          <p class="hero-sub">
+            Dozen is an orchestration layer that plans a task, routes each piece to the best assistant
+            in your pool, and synthesizes one answer — driving ChatGPT, Claude, Gemini and more
+            through your own logged-in web sessions.
+          </p>
+          <div class="hero-actions">
+            <button onclick="openLibrary()" class="btn btn-flame">Build your model pool &rarr;</button>
+            <button onclick="scrollToId('how')" class="btn btn-ghost">See how it works</button>
+          </div>
+          <div class="hero-stats">
+            <div><b id="stat-count">13</b> models</div>
+            <div class="vr"></div>
+            <div><b>4</b> categories</div>
+            <div class="vr"></div>
+            <div><b>$0</b> in API credits</div>
+          </div>
+        </div>
+
+        <!-- product mock -->
+        <div class="fade-up d1">
+          <div class="mock">
+            <div class="mock-bar">
+              <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+              <span class="mock-addr">dozen://orchestrate</span>
+            </div>
+            <div class="mock-task">
+              <div class="t-dim">$ task</div>
+              <div>&quot;Research, draft &amp; fact-check a launch memo.&quot;</div>
+            </div>
+            <div class="mock-meta">
+              <span class="tag">PLANNER</span>
+              <span>&rarr; 3 subtasks &middot; DAG</span>
+            </div>
+            <div id="mock-chips" class="mock-chips"></div>
+            <div class="mock-answer">
+              <div class="label">Synthesized answer</div>
+              <div class="skel w1"></div>
+              <div class="skel w2"></div>
+              <div class="skel w3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- marquee -->
+    <div class="container" style="padding:26px 0 10px">
+      <p class="mq-label">Drives the web UIs you already use</p>
+      <div class="marquee">
+        <div id="marquee-track" class="marquee-track"></div>
+      </div>
+    </div>
+
+    <!-- features -->
+    <div class="container sec">
+      <div class="sec-head reveal">
+        <p class="eyebrow">Why Dozen</p>
+        <h2 class="display">Built like a team,<br /><span class="grad-text">not a chatbot</span></h2>
+        <p>Dozen treats your assistants as specialists and conducts them.</p>
+      </div>
+      <div class="bento">
+        <div class="bcard wide reveal">
+          <div class="bcard-ic" aria-hidden="true">&#9881;</div>
+          <h3>Plan &rarr; Route &rarr; Verify &rarr; Synthesize</h3>
+          <p>A planner decomposes your task into a dependency graph, a router sends each subtask to the strongest model for the job, a verifier checks the work, and a synthesizer stitches one coherent answer.</p>
+        </div>
+        <div class="bcard reveal">
+          <div class="bcard-ic" aria-hidden="true">&#128273;</div>
+          <h3>Zero API keys</h3>
+          <p>It logs into the same web apps you do. Your subscriptions, your sessions — kept on your machine.</p>
+        </div>
+        <div class="bcard reveal">
+          <div class="bcard-ic" aria-hidden="true">&#9889;</div>
+          <h3>Parallel execution</h3>
+          <p>Independent subtasks run concurrently across providers, then converge.</p>
+        </div>
+        <div class="bcard wide reveal">
+          <div class="bcard-ic" aria-hidden="true">&#129513;</div>
+          <h3>Swappable pool, capability-aware routing</h3>
+          <p>Add or remove models any time. The router weighs each provider&rsquo;s strengths — reasoning, coding, research, long-context — and picks per subtask.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- how -->
+    <div id="how" class="container sec">
+      <div class="sec-head center reveal">
+        <p class="eyebrow" style="justify-content:center">Setup</p>
+        <h2 class="display">Live in <span class="grad-text">three steps</span></h2>
+      </div>
+      <div class="steps-grid">
+        <div class="step-card reveal">
+          <span class="step-ghost" aria-hidden="true">1</span>
+          <h3>Pick your models</h3>
+          <p>Open the Model Library and toggle on every assistant you have an account for.</p>
+        </div>
+        <div class="step-card reveal">
+          <span class="step-ghost" aria-hidden="true">2</span>
+          <h3>Log in once</h3>
+          <p>A real browser window opens for each. Sign in (solve any captcha) and confirm — sessions persist.</p>
+        </div>
+        <div class="step-card reveal">
+          <span class="step-ghost" aria-hidden="true">3</span>
+          <h3>Orchestrate</h3>
+          <p>Send one prompt in the Console and watch Dozen route it across your pool.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- CTA band -->
+    <div class="container" style="padding:20px 0 30px">
+      <div class="cta-band reveal">
+        <h2 class="display">Ready to <span class="grad-text">conduct your AI?</span></h2>
+        <p>Build a pool from the models you already pay for. It takes about a minute.</p>
+        <button onclick="openLibrary()" class="btn btn-flame">Open the Model Library &rarr;</button>
+      </div>
+    </div>
+
+    <div class="container footer">
+      <div class="fbrand">
+        <svg class="logo-mark" width="22" height="22" viewBox="0 0 30 30" aria-hidden="true">
+          <g><rect x="14" y="1" width="2" height="6" rx="1" class="hot"/></g>
+          <g transform="rotate(30 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(60 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(90 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(120 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(150 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(180 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(210 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(240 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(270 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(300 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+          <g transform="rotate(330 15 15)"><rect x="14" y="1" width="2" height="6" rx="1" class="tick"/></g>
+        </svg>
+        Dozen <span style="color:var(--faint);font-weight:400">&middot; local web-automation orchestrator</span>
+      </div>
+      <div>Inspired by learned model orchestration. Runs entirely on your machine.</div>
+    </div>
+  </section>
+
+  <!-- ============ CONSOLE ============ -->
+  <section id="view-console" class="hidden">
+    <div class="container" style="padding:140px 0 90px">
+      <div class="console-head">
+        <div>
+          <p class="eyebrow">Mission control</p>
+          <h1 class="display">Orchestration <span class="grad-text">Console</span></h1>
+          <p class="sub">One prompt, routed across your active pool.</p>
+        </div>
+        <button onclick="openActive()" class="btn btn-ghost" style="font-size:13.5px">
+          Active pool <span id="console-pool-count" class="count-pill">0</span>
+        </button>
+      </div>
+
+      <!-- empty state -->
+      <div id="console-empty" class="empty-state">
+        <div class="glyph" aria-hidden="true">&#10024;</div>
+        <h3>No active models yet</h3>
+        <p>Add at least one model and log in to start orchestrating.</p>
+        <button onclick="openLibrary()" class="btn btn-flame">Open Model Library</button>
+      </div>
+
+      <!-- runner -->
+      <div id="console-runner" class="hidden">
+        <div id="console-chips" class="pool-chips"></div>
+
+        <!-- mission strip: rocket flies past planets while a run is live -->
+        <div class="mission" id="mission" aria-hidden="true">
+          <div class="m-stars"></div>
+          <div class="m-stars s2"></div>
+          <div class="m-belt">
+            <span class="m-planet p1"></span>
+            <span class="m-planet p2"></span>
+            <span class="m-planet p3"></span>
+            <span class="m-rock r1"></span>
+            <span class="m-rock r2"></span>
+            <span class="m-planet p1 b2"></span>
+            <span class="m-planet p2 b2"></span>
+            <span class="m-planet p3 b2"></span>
+            <span class="m-rock r1 b2"></span>
+            <span class="m-rock r2 b2"></span>
+          </div>
+          <div class="m-dest"></div>
+          <div class="m-lines"><i></i><i></i><i></i></div>
+          <div class="m-rocket">
+            <div class="m-bob">
+              <i class="m-flame"></i>
+              <div class="m-ship">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="m-status"><span class="m-dot"></span><span id="missionStatus">standing by</span></div>
+        </div>
+
+        <div class="runner-grid">
+          <!-- LEFT: prompt (stretches to match the terminal) -->
+          <div class="panel prompt-panel">
+            <textarea id="prompt" rows="5" placeholder="e.g. Compare Postgres vs. MongoDB for a multi-tenant SaaS, then recommend one with justification."></textarea>
+            <div class="run-row">
+              <button onclick="runTask()" id="btn-run" class="btn btn-flame">Run orchestrator</button>
+              <button onclick="stopTask()" id="btn-stop" class="btn btn-stop hidden">&#9632; Stop</button>
+              <span id="run-status" class="run-status"></span>
+            </div>
+            <div id="run-error" class="run-error"></div>
+          </div>
+
+          <!-- RIGHT: live log -->
+          <div class="log-shell" id="logShell">
+            <div class="log-bar">
+              <span class="dot dot-r"></span><span class="dot dot-y"></span><span class="dot dot-g"></span>
+              <span class="log-addr">dozen://live-progress</span>
+              <span id="log-live" class="hidden"><i></i>streaming</span>
+              <button onclick="clearLog()" class="log-clear">clear</button>
+            </div>
+            <div id="log">
+              <div class="log-empty">Waiting for a run — progress will stream here in real time.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RESULT: full width below prompt + terminal -->
+        <div id="result"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ MODEL LIBRARY ============ -->
+<div id="library" class="overlay hidden">
+  <div onclick="closeLibrary()" class="overlay-bg"></div>
+  <div class="modal animate-pop">
+    <div class="modal-head">
+      <div>
+        <h2 class="display" style="font-size:1.5rem">Model Library</h2>
+        <p class="sub">Toggle a model to add it to your pool — a login window opens instantly.</p>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+        <div class="search-wrap">
+          <input id="lib-search" oninput="renderLibrary()" placeholder="Search models&hellip;" />
+          <span class="search-ico" aria-hidden="true">&#8981;</span>
+        </div>
+        <button onclick="closeLibrary()" class="icon-btn" aria-label="Close library">&#10005;</button>
+      </div>
+    </div>
+    <div id="lib-body" class="modal-body"></div>
+    <div class="modal-foot">
+      <div class="info"><b id="lib-active-count">0</b> in your active pool</div>
+      <button onclick="openActive()" class="link-btn">Manage active &rarr;</button>
+      <button onclick="closeLibrary()" class="btn btn-flame" style="margin-left:auto">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ACTIVE MODELS DRAWER ============ -->
+<div id="drawer" class="overlay hidden">
+  <div onclick="closeActive()" class="overlay-bg"></div>
+  <aside class="drawer-panel translate-x-full" id="drawer-panel">
+    <div class="drawer-head">
+      <div>
+        <h2 class="display" style="font-size:1.4rem">My Active Models</h2>
+        <p class="sub">Connect, monitor &amp; remove your pool.</p>
+      </div>
+      <button onclick="closeActive()" class="icon-btn" style="margin-left:auto" aria-label="Close drawer">&#10005;</button>
+    </div>
+
+    <div class="drawer-progress-wrap">
+      <div class="progress-track">
+        <div id="drawer-progress" style="width:0%"></div>
+      </div>
+      <div id="drawer-progress-label">0 ready</div>
+    </div>
+
+    <div id="drawer-body"></div>
+
+    <div class="drawer-foot">
+      <button onclick="openLibrary()" class="btn btn-ghost" style="font-size:13.5px;padding:10px 18px">+ Add models</button>
+      <button id="drawer-console" onclick="closeActive(); go('console')" class="btn btn-flame" style="margin-left:auto" disabled>Open Console &rarr;</button>
+    </div>
+  </aside>
+</div>
+
+<!-- toast stack -->
+<div id="toasts"></div>
+<script src="/static/prompt_keys.js"></script>
+<script>
+// fetch() rejects with a bare "Failed to fetch" for *any* network-level
+// failure — which reads as a per-model problem even though it means the Dozen
+// server itself is unreachable. Translate it once, here, so every caller gets a
+// message that names the real cause, and flag it so callers can tell an offline
+// backend apart from a genuine per-provider error.
+const OFFLINE_MSG = () =>
+  `can’t reach the Dozen server at ${location.host} — is it still running?`;
+
+const api = async (path, opts) => {
+  let res;
+  try {
+    res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+  } catch (_) {
+    const err = new Error(OFFLINE_MSG());
+    err.offline = true;
+    showOffline();
+    throw err;
+  }
+  hideOffline();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || ("Request failed (" + res.status + ")"));
+  return data;
+};
+
+function showOffline() {
+  const el = $("offline-banner");
+  if (!el) return;
+  $("offline-detail").textContent =
+    ` Nothing is answering at ${location.host}. Start it with "python run_web.py" in the project folder, then hit Retry.`;
+  el.classList.remove("hidden");
+}
+function hideOffline() {
+  const el = $("offline-banner");
+  if (el) el.classList.add("hidden");
+}
+async function retryBackend() {
+  try {
+    await loadCatalog();
+    toast("Reconnected to the Dozen server.", "ok");
+  } catch (e) {
+    // showOffline() already ran inside api(); keep the banner up.
+  }
+}
+const $ = (id) => document.getElementById(id);
+const esc = (s) => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function toast(msg, kind, withAction) {
+  const tones = { ok: "t-ok", err: "t-err", info: "t-info" };
+  const el = document.createElement("div");
+  el.className = `toast ${tones[kind] || tones.info} animate-pop`;
+  el.innerHTML = `<div style="flex:1">${msg}</div>` +
+    (withAction ? `<button class="toast-act">Open &rarr;</button>` : "");
+  if (withAction) el.querySelector("button").onclick = () => { openActive(); el.remove(); };
+  $("toasts").appendChild(el);
+  setTimeout(() => {
+    el.style.transition = "opacity .4s, transform .4s";
+    el.style.opacity = "0"; el.style.transform = "translateY(10px)";
+    setTimeout(() => el.remove(), 420);
+  }, withAction ? 7000 : 4200);
+}
+
+const S = {
+  catalog: [],
+  byKey: {},
+  active: {},        // key -> { status: 'connecting'|'ready'|'error', name, error }
+  // Launch failures already toasted, so a polled/reopened drawer reports each
+  // one once instead of re-toasting the same dead window on every refresh.
+  reportedLaunchErrors: {},
+  view: "home",
+};
+
+/* ---------- helpers ---------- */
+function tile(p, size) {
+  const s = size || "t-md";
+  return `<div class="tile-badge ${s}"
+    style="background:linear-gradient(135deg, ${p.color}, ${p.color}aa)">${p.short}</div>`;
+}
+const counts = () => {
+  const keys = Object.keys(S.active);
+  const ready = keys.filter(k => S.active[k].status === "ready");
+  return { total: keys.length, ready: ready.length, keys, readyKeys: ready };
+};
+
+/* ---------- navigation ---------- */
+let goTimer = null;
+function go(view) {
+  S.view = view;
+  $("view-home").classList.toggle("hidden", view !== "home");
+  $("view-console").classList.toggle("hidden", view !== "console");
+  if (view === "console") renderConsole();
+  // re-run the entrance choreography for the section we just revealed
+  const shown = $(view === "console" ? "view-console" : "view-home");
+  shown.classList.remove("entering");
+  void shown.offsetWidth;   // force reflow so the animation restarts
+  shown.classList.add("entering");
+  clearTimeout(goTimer);
+  goTimer = setTimeout(() => shown.classList.remove("entering"), 1100);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function scrollToId(id) { $(id).scrollIntoView({ behavior: "smooth" }); }
+function primaryCta() {
+  const c = counts();
+  if (c.total === 0) return openLibrary();
+  if (c.ready > 0) return go("console");
+  return openActive();
+}
+
+/* ---------- model library ---------- */
+let libFreshTimer = null;
+function openLibrary() {
+  renderLibrary();
+  $("library").classList.remove("hidden");
+  document.body.classList.add("no-scroll");
+  // stagger the cards in only when the modal opens (not on every re-render)
+  const body = $("lib-body");
+  body.classList.add("fresh");
+  clearTimeout(libFreshTimer);
+  libFreshTimer = setTimeout(() => body.classList.remove("fresh"), 1300);
+}
+function closeLibrary() { $("library").classList.add("hidden"); document.body.classList.remove("no-scroll"); }
+
+let _libIdx = 0;
+function renderLibrary() {
+  _libIdx = 0;
+  const q = ($("lib-search").value || "").toLowerCase().trim();
+  const cats = [];
+  S.catalog.forEach(p => { if (!cats.includes(p.category)) cats.push(p.category); });
+  $("lib-body").innerHTML = cats.map(cat => {
+    const items = S.catalog.filter(p => p.category === cat &&
+      (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)));
+    if (!items.length) return "";
+    return `<section>
+      <div class="lib-cat-head">
+        <h3>${cat}</h3>
+        <span class="n">${items.length}</span>
+        <div class="rule"></div>
+      </div>
+      <div class="lib-grid">${items.map(libCard).join("")}</div>
+    </section>`;
+  }).join("") || `<div class="lib-none">No models match &ldquo;${esc(q)}&rdquo;.</div>`;
+  $("lib-active-count").textContent = counts().total;
+}
+
+function libCard(p) {
+  const a = S.active[p.key];
+  const on = !!a;
+  const sub = on ? (a.status === "ready" ? "Ready ✓" : a.status === "error" ? "Needs attention" : "Waiting for login…") : p.description;
+  const subCls = on ? (a.status === "ready" ? "c-ok" : a.status === "error" ? "c-err" : "c-wait") : "c-muted";
+  return `<div onclick="toggleModel('${p.key}')" style="--accent:${p.color};--d:${Math.min(_libIdx++ * 35, 420)}ms"
+      class="lib-card ${on ? "card-sel" : ""}">
+      <div class="lib-card-row">
+        ${tile(p)}
+        <div style="min-width:0;flex:1">
+          <div class="lib-name">${p.name}</div>
+          <div class="lib-sub ${subCls}">${esc(sub)}</div>
+        </div>
+        <div class="switch ${on ? "on" : ""}" style="background:${on ? p.color : "rgba(120,110,130,.3)"}"></div>
+      </div>
+    </div>`;
+}
+
+async function toggleModel(key) {
+  if (S.active[key]) return removeProvider(key);   // toggling off = remove
+  const p = S.byKey[key];
+  // Optimistic: show it as connecting immediately.
+  S.active[key] = { status: "connecting", name: p.name };
+  renderLibrary(); renderDrawer(); updateUI();
+  try {
+    const r = await api("/api/models/start-login", {
+      method: "POST", body: JSON.stringify({ provider: key }),
+    });
+    S.active[key].status = r.status || "connecting";
+    // No success/info popups here — the card's own status line already says
+    // "Waiting for login…" / "Ready ✓". Only real problems surface as a toast.
+    if (r.status === "error") {
+      toast(`<b>${esc(p.name)}</b>: ${esc(r.error || "couldn't open the login window")}`, "err");
+    }
+  } catch (e) {
+    if (e.offline) {
+      // The request never reached the server, so nothing was added there —
+      // drop the optimistic entry instead of leaving a model in the pool that
+      // the backend has never heard of.
+      delete S.active[key];
+    } else {
+      S.active[key].status = "error";
+    }
+    toast(`<b>${esc(p.name)}</b>: ${esc(e.message)}`, "err");
+  }
+  renderLibrary(); renderDrawer(); updateUI();
+}
+
+/* ---------- active drawer ---------- */
+function openActive() { renderDrawer(); $("drawer").classList.remove("hidden"); document.body.classList.add("no-scroll");
+  requestAnimationFrame(() => $("drawer-panel").classList.remove("translate-x-full"));
+  // api() already raises the offline banner; don't let the un-awaited refresh
+  // surface as an unhandled rejection.
+  refreshActive().catch(() => {}); }
+function closeActive() { $("drawer-panel").classList.add("translate-x-full"); document.body.classList.remove("no-scroll");
+  setTimeout(() => $("drawer").classList.add("hidden"), 280); }
+
+function renderDrawer() {
+  const c = counts();
+  const body = $("drawer-body");
+  if (c.total === 0) {
+    body.innerHTML = `<div class="drawer-empty">
+      <div class="glyph">&#128237;</div>Your pool is empty.<br/>Add models from the library.</div>`;
+  } else {
+    body.innerHTML = c.keys.map((k, i) => drawerRow(k, i)).join("");
+  }
+  $("drawer-progress").style.width = c.total ? (c.ready / c.total * 100) + "%" : "0%";
+  $("drawer-progress-label").textContent = `${c.ready} of ${c.total} ready`;
+  $("drawer-console").disabled = c.ready === 0;
+}
+
+function drawerRow(key, i) {
+  const p = S.byKey[key], a = S.active[key];
+  const pill = {
+    connecting: ['<span class="spinner"></span> Waiting for login…', "pill-wait"],
+    ready: ["● Ready", "pill-ok"],
+    error: ["▲ Action needed", "pill-err"],
+  }[a.status] || ["Idle", "pill-idle"];
+  // A recorded launch error means there is no window to confirm — the useful
+  // action is to try opening it again, not to re-check a session that
+  // never existed.
+  const confirmBtn = a.status === "ready" ? "" : (a.error
+    ? `<button onclick="retryLogin('${key}')" class="mini-btn">Retry login window</button>`
+    : `<button onclick="confirmProvider('${key}')" class="mini-btn">Confirm login</button>`);
+  const why = a.error
+    ? `<div class="pool-why">${esc(a.error)}</div>` : "";
+  return `<div id="row-${key}" class="pool-row" style="--d:${Math.min((i || 0) * 60, 420)}ms">
+    <div class="pool-row-main">
+      ${tile(p, "t-sm")}
+      <div style="min-width:0;flex:1">
+        <div class="pool-name">${p.name}</div>
+        <span class="pill ${pill[1]}">${pill[0]}</span>
+        ${why}
+      </div>
+      <button onclick="removeProvider('${key}')" title="Remove" class="remove-btn">&#128465;</button>
+    </div>
+    ${confirmBtn ? `<div style="margin-top:11px">${confirmBtn}</div>` : ""}
+  </div>`;
+}
+
+// Re-attempt the Playwright window launch after a recorded failure (the usual
+// cause is a leftover Chromium still holding the provider's profile, which
+// clears once that window is closed).
+async function retryLogin(key) {
+  const p = S.byKey[key];
+  S.active[key] = { status: "connecting", name: p.name, error: "" };
+  delete S.reportedLaunchErrors[key];
+  renderDrawer(); renderLibrary(); updateUI();
+  try {
+    await api("/api/models/start-login", {
+      method: "POST", body: JSON.stringify({ provider: key }),
+    });
+  } catch (e) {
+    if (e.offline) delete S.active[key];
+    else S.active[key].status = "error";
+    toast(`<b>${esc(p.name)}</b>: ${esc(e.message)}`, "err");
+  }
+  renderDrawer(); renderLibrary(); updateUI();
+}
+
+async function confirmProvider(key) {
+  const p = S.byKey[key];
+  if (S.active[key]) S.active[key].status = "connecting";
+  renderDrawer();
+  try {
+    const r = await api("/api/models/confirm-login", {
+      method: "POST", body: JSON.stringify({ provider: key }),
+    });
+    S.active[key].status = r.ready ? "ready" : "error";
+    toast(r.ready
+      ? `<b>${esc(p.name)}</b> is ready ✓ — added to the pool.`
+      : `<b>${esc(p.name)}</b>: not signed in yet. Finish logging in, then retry.`,
+      r.ready ? "ok" : "err");
+  } catch (e) {
+    S.active[key].status = "error";
+    toast(`<b>${esc(p.name)}</b>: ${esc(e.message)}`, "err");
+  }
+  renderDrawer(); renderLibrary(); updateUI();
+}
+
+async function removeProvider(key) {
+  try {
+    await api("/api/models/" + encodeURIComponent(key), { method: "DELETE" });
+  } catch (e) { /* still drop it locally */ }
+  delete S.active[key];
+  renderDrawer(); renderLibrary(); updateUI();
+}
+
+async function refreshActive() {
+  const r = await api("/api/active");
+  (r.status ? Object.keys(r.status) : []).forEach(k => {
+    if (!S.byKey[k]) return;
+    const st = r.status[k];
+    // A recorded launch error means the window will NEVER appear (locked
+    // profile, Chromium missing, crashed launch). Show it as an actionable
+    // failure rather than leaving the card spinning on "connecting" forever.
+    let status;
+    if (st.logged_in) status = "ready";
+    else if (st.error) status = "error";
+    else if (S.active[k] && S.active[k].status === "error") status = "error";
+    else status = "connecting";
+    S.active[k] = { status, name: st.name, error: st.error || "" };
+    if (st.error && !S.reportedLaunchErrors[k]) {
+      S.reportedLaunchErrors[k] = true;
+      toast(`<b>${esc(st.name)}</b>: couldn't open the login window — ${esc(st.error)}`, "err");
+    }
+    if (!st.error) delete S.reportedLaunchErrors[k];
+  });
+  renderDrawer(); renderLibrary(); updateUI();
+}
+
+/* ---------- console ---------- */
+function renderConsole() {
+  const c = counts();
+  $("console-empty").classList.toggle("hidden", c.ready > 0);
+  $("console-runner").classList.toggle("hidden", c.ready === 0);
+  $("console-pool-count").textContent = c.ready;
+  $("console-chips").innerHTML = c.readyKeys.map((k, i) => {
+    const p = S.byKey[k];
+    return `<span class="pool-chip" style="--d:${Math.min(i * 50, 400)}ms">${tile(p, "t-xs")}${p.name}</span>`;
+  }).join("");
+}
+
+// The live SSE connection for the in-flight run, plus a guard so we only
+// finish a run once (terminal event vs. dropped connection).
+let logSource = null;
+let runFinished = true;
+
+function setRunning(on) {
+  $("btn-run").classList.toggle("hidden", on);
+  $("btn-stop").classList.toggle("hidden", !on);
+  $("btn-run").disabled = on;
+  $("log-live").classList.toggle("hidden", !on);
+  $("log-live").classList.toggle("flex", on);
+  $("logShell").classList.toggle("run", on);
+  if (on) setMission("running");
+}
+
+/* ---------- mission strip ---------- */
+// idle → standing by | running → rocket in flight | done → landed | abort → shake
+let missionTimer = null;
+function setMission(state) {
+  const m = $("mission");
+  if (!m) return;
+  clearTimeout(missionTimer);
+  m.classList.remove("running", "done", "abort");
+  const label = {
+    idle: "standing by",
+    running: "in flight — routing subtasks",
+    done: "mission complete",
+    abort: "mission aborted",
+  }[state] || "standing by";
+  $("missionStatus").textContent = label;
+  if (state !== "idle") m.classList.add(state);
+  // landed / aborted rockets return to the pad after a beat
+  if (state === "done" || state === "abort") {
+    missionTimer = setTimeout(() => setMission("idle"), 5000);
+  }
+}
+
+/* ---------- live progress log ---------- */
+function clearLog() {
+  $("log").innerHTML = '<div class="log-empty">Waiting for a run — progress will stream here in real time.</div>';
+}
+
+function appendLog(ev) {
+  const log = $("log");
+  const empty = log.querySelector(".log-empty");
+  if (empty) empty.remove();
+  const t = new Date().toLocaleTimeString([], { hour12: false });
+  const line = document.createElement("div");
+  line.className = `log-line s-${ev.status || "log"} p-${ev.phase || "log"}`;
+  line.innerHTML =
+    `<span class="log-time">${t}</span>` +
+    `<span class="log-msg">${esc(ev.message || "")}</span>`;
+  // Auto-scroll to the bottom only if the user is already near it.
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  log.appendChild(line);
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+function handleEvent(ev) {
+  appendLog(ev);
+  if (ev.phase === "result") {
+    finishRun(ev.result || null);
+  } else if (ev.phase === "error") {
+    $("run-error").textContent = ev.message || "Run failed.";
+    finishRun(null);
+  }
+}
+
+function finishRun(result) {
+  if (runFinished) return;
+  runFinished = true;
+  if (logSource) { logSource.close(); logSource = null; }
+  setRunning(false);
+  setMission(result && !result.error && !result.cancelled ? "done" : "abort");
+  $("run-status").textContent = "";
+  if (result) {
+    if (result.cancelled) toast("Orchestration stopped.", "info");
+    renderResult(result);
+  }
+}
+
+async function runTask() {
+  const prompt = $("prompt").value.trim();
+  $("run-error").textContent = ""; $("result").innerHTML = "";
+  if (!prompt) { $("run-error").textContent = "Enter a task prompt."; return; }
+
+  setRunning(true);
+  runFinished = false;
+  clearLog();
+  $("run-status").innerHTML = '<span class="spinner"></span> Orchestrating across your models…';
+
+  let runId;
+  try {
+    await api("/api/orchestrator/ready", { method: "POST" }).catch(() => {});
+    // Conversation persistence (Phase 1.3): reuse the stored conversation id
+    // so every prompt/answer lands in the same on-disk conversation; the
+    // server returns the id (creating a conversation when needed).
+    const conversationId = localStorage.getItem("dozen.conversation_id") || "";
+    const r = await api("/api/run", {
+      method: "POST",
+      body: JSON.stringify({ prompt, conversation_id: conversationId }),
+    });
+    runId = r.run_id;
+    if (r.conversation_id) localStorage.setItem("dozen.conversation_id", r.conversation_id);
+  } catch (e) {
+    $("run-error").textContent = e.message;
+    runFinished = true;
+    setRunning(false);
+    setMission("idle");
+    $("run-status").textContent = "";
+    return;
+  }
+
+  // Open the Server-Sent Events stream and render updates as they arrive.
+  logSource = new EventSource(`/api/run/${runId}/events`);
+  logSource.onmessage = (e) => {
+    try { handleEvent(JSON.parse(e.data)); } catch (_) {}
+  };
+  logSource.onerror = () => {
+    // The stream dropped before a terminal event (e.g. server closed early).
+    if (!runFinished) {
+      appendLog({ icon: "⚠️", status: "error", message: "Live stream disconnected." });
+      finishRun(null);
+    }
+  };
+}
+
+async function stopTask() {
+  $("btn-stop").disabled = true;
+  $("run-status").innerHTML = '<span class="spinner"></span> Stopping…';
+  appendLog({ icon: "🛑", status: "cancelled", message: "Stop requested — cancelling…" });
+  // Trip the backend cancellation token (halts observers, prompt injection and
+  // pending model generations). The run will emit its terminal event, which
+  // closes the stream via finishRun().
+  try { await api("/api/stop", { method: "POST" }); } catch (e) {}
+  $("btn-stop").disabled = false;
+}
+
+/* ---------- structured answer rendering ---------- */
+// If the "answer" is actually a JSON wrapper (worker artifact, planner echo,
+// or fenced JSON), unwrap the human content out of it.
+function unwrapAnswer(text) {
+  let t = (text || "").trim();
+  const fence = t.match(/^```[a-zA-Z]*\s*\n([\s\S]*?)```\s*$/);
+  if (fence) t = fence[1].trim();
+  if (!t.startsWith("{")) return t;
+  let obj = null;
+  try { obj = JSON.parse(t); } catch (_) {
+    const a = t.indexOf("{"), b = t.lastIndexOf("}");
+    if (a > -1 && b > a) { try { obj = JSON.parse(t.slice(a, b + 1)); } catch (_) {} }
+  }
+  if (!obj || typeof obj !== "object") return t;
+  if (typeof obj.direct_answer === "string" && obj.direct_answer.trim()) return obj.direct_answer.trim();
+  if (typeof obj.final_answer === "string" && obj.final_answer.trim()) return obj.final_answer.trim();
+  if (obj.artifacts && typeof obj.artifacts === "object") {
+    const parts = Object.entries(obj.artifacts).filter(([, v]) => String(v).trim());
+    if (parts.length === 1) return String(parts[0][1]);
+    if (parts.length) return parts.map(([k, v]) => "### " + k + "\n" + v).join("\n\n");
+  }
+  if (Array.isArray(obj.delegations)) {
+    return "The orchestrator returned internal planning data instead of an answer. Please run the task again.";
+  }
+  // A protocol envelope (summary + key_decisions/confidence) degrades to its
+  // summary text — internal fields are never displayed. Any OTHER JSON object
+  // is the user's own data (e.g. an explicitly requested JSON deliverable) and
+  // passes through untouched.
+  const isEnvelope = typeof obj.summary === "string" &&
+    (Array.isArray(obj.key_decisions) || "confidence" in obj);
+  if (isEnvelope && obj.summary.trim()) return obj.summary.trim();
+  return t;
+}
+
+// Minimal, XSS-safe markdown: escapes everything first, then rebuilds
+// headings, lists, bold/italic, inline & fenced code, quotes and rules.
+function mdToHtml(src) {
+  const codes = [];
+  let text = esc(src || "").replace(/```([a-zA-Z0-9_-]*)\r?\n?([\s\S]*?)```/g, (_, lang, body) => {
+    codes.push(body.replace(/\n$/, ""));
+    return "@@DZCODE" + (codes.length - 1) + "@@";
+  });
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+  const out = [];
+  let list = null;
+  const closeList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+  const tableBuf = [];
+  const flushTable = () => {
+    if (!tableBuf.length) return;
+    const rows = tableBuf.map(r => r.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim()));
+    let head = null, body = rows;
+    if (rows.length > 1 && rows[1].every(c => /^:?-{2,}:?$/.test(c))) {
+      head = rows[0]; body = rows.slice(2);
+    }
+    let html = '<div class="md-tablewrap"><table>';
+    if (head) html += "<thead><tr>" + head.map(c => "<th>" + inline(c) + "</th>").join("") + "</tr></thead>";
+    html += "<tbody>" + body.map(r => "<tr>" + r.map(c => "<td>" + inline(c) + "</td>").join("") + "</tr>").join("") + "</tbody>";
+    html += "</table></div>";
+    out.push(html);
+    tableBuf.length = 0;
+  };
+  for (const raw of text.split("\n")) {
+    const t = raw.trim();
+    if (/^\|.*\|$/.test(t)) { closeList(); tableBuf.push(t); continue; }
+    flushTable();
+    const code = t.match(/^@@DZCODE(\d+)@@$/);
+    if (code) { closeList(); out.push("<pre><code>" + codes[+code[1]] + "</code></pre>"); continue; }
+    if (!t) { closeList(); continue; }
+    const h = t.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { closeList(); const lv = Math.min(h[1].length + 2, 5); out.push("<h" + lv + ">" + inline(h[2]) + "</h" + lv + ">"); continue; }
+    if (/^([-*_])\1\1+$/.test(t)) { closeList(); out.push("<hr>"); continue; }
+    const ul = t.match(/^(?:[-*•]\s+)(.*)$/);
+    if (ul) { if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; } out.push("<li>" + inline(ul[1]) + "</li>"); continue; }
+    const ol = t.match(/^\d{1,3}[.)]\s+(.*)$/);
+    if (ol) { if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; } out.push("<li>" + inline(ol[1]) + "</li>"); continue; }
+    const q = t.match(/^&gt;\s?(.*)$/);
+    if (q) { closeList(); out.push("<blockquote>" + inline(q[1]) + "</blockquote>"); continue; }
+    closeList();
+    out.push("<p>" + inline(t) + "</p>");
+  }
+  closeList();
+  flushTable();
+  return out.join("\n");
+}
+
+function renderResult(r) {
+  let html = `<div class="panel animate-fadeUp">`;
+  if (r.error) html += `<div class="run-error" style="margin:0 0 12px">${esc(String(r.error))}</div>`;
+  // The terminal answer is contractually a rendered string. Anything else is
+  // NEVER stringified into the chat — it degrades to a clean notice.
+  const isJsonData = r.answer_kind === "json_data";
+  const isLiteral = r.answer_kind === "literal";
+  const answerText = typeof r.final_answer === "string"
+    ? ((isJsonData || isLiteral) ? r.final_answer : unwrapAnswer(r.final_answer))
+    : (r.final_answer == null ? "" : "The run returned a non-text result. See the execution trace below.");
+  html += `<div class="result-label">Final answer</div>
+    <div class="result-answer md">${answerText
+      ? (isJsonData ? `<pre><code>${esc(answerText)}</code></pre>` : mdToHtml(answerText))
+      : esc("(no answer)")}</div></div>`;
+  const subs = r.summary && r.summary.subtasks;
+  if (subs && subs.length) {
+    html += `<div class="panel animate-fadeUp trace-wrap" style="margin-top:18px">
+      <div class="result-label">Execution trace</div>
+      <table class="trace-table"><thead><tr>
+        <th>Subtask</th><th>Model &amp; why chosen</th>
+        <th>Status</th><th>Score</th><th>Time</th>
+      </tr></thead><tbody>` +
+      subs.map(s => `<tr>
+        <td>${esc(s.title)}</td>
+        <td>
+          <span class="agent-pill">${esc(s.agent)}</span>
+          ${s.reasoning ? `<div class="why" title="${esc(s.reasoning)}">${esc(s.reasoning)}</div>` : ""}
+        </td>
+        <td>${esc(s.status)}</td>
+        <td class="num">${typeof s.score === "number" ? s.score.toFixed(2) : s.score}</td>
+        <td class="num" style="color:var(--faint)">${s.duration_s}s</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  }
+  $("result").innerHTML = html;
+}
+
+/* ---------- shared UI refresh ---------- */
+function updateUI() {
+  const c = counts();
+  const nav = $("nav-count");
+  nav.textContent = c.total;
+  nav.classList.toggle("hidden", c.total === 0);
+  const cta = $("cta");
+  if (c.total === 0) cta.textContent = "Get started";
+  else if (c.ready > 0) cta.textContent = "Open Console";
+  else cta.textContent = "Manage models";
+  if (S.view === "console") renderConsole();
+}
+
+/* ---------- decorative renders ---------- */
+function renderMarquee() {
+  const items = S.catalog.map(p => `
+    <div class="mq-item">
+      ${tile(p, "t-mq")}<span>${p.name}</span>
+    </div>`).join("");
+  $("marquee-track").innerHTML = items + items; // duplicate for seamless loop
+  // hero mock chips
+  $("mock-chips").innerHTML = S.catalog.slice(0, 3).map((p, i) => `
+    <div class="mock-chip breathe" style="animation-delay:${i * 0.4}s">
+      <div style="display:flex;justify-content:center">${tile(p, "t-xs")}</div>
+      <div class="mc-name">${p.name}</div>
+    </div>`).join("");
+}
+
+function initReveal() {
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+}
+
+/* ---------- starfield ---------- */
+function initStars() {
+  const cv = $("stars"), ctx = cv.getContext("2d");
+  const RM = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let stars = [], W = 0, H = 0, tick = 0;
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    stars = [];
+    const n = Math.min(160, Math.floor(W * H / 12000));
+    for (let i = 0; i < n; i++) {
+      const roll = Math.random();
+      stars.push({
+        x: Math.random() * W, y: Math.random() * H,
+        z: .25 + Math.random() * .75, r: .4 + Math.random() * 1.2,
+        p: Math.random() * Math.PI * 2,
+        c: roll < .8 ? "244,240,234" : (roll < .93 ? "143,184,255" : "255,184,77"),
+      });
+    }
+  }
+  // occasional shooting star streaking down-left
+  let meteors = [];
+  function spawnMeteor() {
+    meteors.push({
+      x: W * .15 + Math.random() * W * .75, y: -10,
+      vx: -(2 + Math.random() * 2), vy: 2 + Math.random() * 1.5, life: 1,
+    });
+    setTimeout(spawnMeteor, 4000 + Math.random() * 7000);
+  }
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    tick += .016;
+    for (const s of stars) {
+      if (!RM) { s.y -= .04 * s.z; if (s.y < -4) { s.y = H + 4; s.x = Math.random() * W; } }
+      const a = .2 + .5 * Math.abs(Math.sin(tick * s.z + s.p));
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r * s.z, 0, 6.2832);
+      ctx.fillStyle = `rgba(${s.c},${a.toFixed(3)})`;
+      ctx.fill();
+    }
+    for (let i = meteors.length - 1; i >= 0; i--) {
+      const mt = meteors[i];
+      mt.x += mt.vx; mt.y += mt.vy; mt.life -= .012;
+      if (mt.life <= 0 || mt.y > H + 20 || mt.x < -20) { meteors.splice(i, 1); continue; }
+      const g = ctx.createLinearGradient(mt.x, mt.y, mt.x - mt.vx * 11, mt.y - mt.vy * 11);
+      g.addColorStop(0, `rgba(255,205,150,${(mt.life * .9).toFixed(3)})`);
+      g.addColorStop(1, "rgba(255,120,60,0)");
+      ctx.strokeStyle = g; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(mt.x, mt.y);
+      ctx.lineTo(mt.x - mt.vx * 11, mt.y - mt.vy * 11);
+      ctx.stroke();
+    }
+    if (!RM) requestAnimationFrame(draw);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+  if (RM) { tick = 4; draw(); } else { requestAnimationFrame(draw); setTimeout(spawnMeteor, 3500); }
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { closeLibrary(); closeActive(); }
+});
+
+// Prompt box: Enter submits (same path as the Run button), Shift+Enter edits.
+// The decision itself lives in /static/prompt_keys.js as a pure function;
+// busy-state comes from the Run button's disabled flag — the same source of
+// truth setRunning() maintains — so key and click can never double-submit.
+$("prompt").addEventListener("keydown", (e) => {
+  const action = dozenPromptKeyAction({
+    key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
+    metaKey: e.metaKey, isComposing: e.isComposing, keyCode: e.keyCode,
+    repeat: e.repeat, busy: $("btn-run").disabled, text: e.target.value,
+  });
+  if (action === "submit") { e.preventDefault(); runTask(); }
+  else if (action === "block") { e.preventDefault(); }
+});
+
+/* ---------- init ---------- */
+// Loading the catalog is the first thing that touches the backend, so it is
+// also the first place an unreachable server shows up. It must fail LOUDLY:
+// swallowing it into console.error left the page looking healthy while every
+// later action failed with an unexplained "Failed to fetch".
+async function loadCatalog() {
+  const data = await api("/api/providers");
+  S.catalog = data.providers;
+  S.catalog.forEach(p => (S.byKey[p.key] = p));
+  $("stat-count").textContent = S.catalog.length;
+  renderMarquee();
+  await refreshActive();   // restore any already-open sessions
+  updateUI();
+}
+
+(async function init() {
+  initStars();
+  initReveal();
+  try {
+    await loadCatalog();
+  } catch (e) {
+    console.error(e);
+    if (!e.offline) {
+      toast(`Couldn't load the model library: ${esc(e.message)}`, "err");
+    }
+  }
+})();
+</script>
+</body>
+</html>
