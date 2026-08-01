@@ -133,10 +133,18 @@ class WebAutomationLLMClient(LLMClient):
         browser: BrowserManager,
         max_retries: int = 3,
         retry_backoff_s: float = 2.0,
+        json_format_retries: int = 5,
     ) -> None:
         # mock=False: we never use the mock path. The parent stores retry config.
+        # ``json_format_retries`` is the JSON re-ask budget and is separate from
+        # the transport retries above — web chat UIs are the worst offenders for
+        # answering a structured request conversationally, so the inherited
+        # ``complete_json`` keeps re-asking with an escalating correction.
         super().__init__(
-            mock=False, max_retries=max_retries, retry_backoff_s=retry_backoff_s
+            mock=False,
+            max_retries=max_retries,
+            retry_backoff_s=retry_backoff_s,
+            json_format_retries=json_format_retries,
         )
         self.browser = browser
 

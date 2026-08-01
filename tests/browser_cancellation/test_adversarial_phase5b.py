@@ -17,7 +17,7 @@ from webllm.browser_cancellation import (
     StopActionStatus,
 )
 from webllm.browser_jobs import BrowserJobId
-from webllm.providers import PROVIDERS, WaitTuning, get_adapter
+from webllm.providers import PROVIDERS, ProviderError, WaitTuning, get_adapter
 
 from ._util import CooperativeGate, Gate, InterruptibleBrowserManager, poll
 from .test_adapter_seam import FakePage
@@ -236,8 +236,13 @@ class TestContaminationAndOwnership(unittest.TestCase):
             with self.assertRaises(CancelledError):
                 old.result(timeout=1)
             self.assertTrue(poll(lambda: bm.stop_calls == 1))
-            with self.assertRaises(TimeoutError):
+            # The successor cannot claim a tab the cancelled job still owns. It
+            # is refused INSTANTLY, so reporting a timeout (as this once did)
+            # was false on both counts: nothing waited, and the successor was
+            # blamed for its predecessor. The error must name the real cause.
+            with self.assertRaises(ProviderError) as ctx:
                 successor.result(timeout=2)
+            self.assertIn("still busy", str(ctx.exception))
             self.assertNotIn("successor", bm.prompts_sent())
             self.assertEqual(bm.active_browser_job("openai"), old.job_id)
             self.assertFalse(old.snapshot().physical_settled)

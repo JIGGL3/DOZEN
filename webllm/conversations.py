@@ -99,11 +99,21 @@ def prepare_run(
     run_id: str,
     context: str = "",
     desired_output: str = "",
+    *,
+    inject_history: bool = False,
 ) -> RunConversation:
-    """Resolve/create the conversation, build the history context, store the
-    user message, open a session — in that order: the context is built BEFORE
-    the current prompt is recorded, so the prompt never duplicates into its
-    own history.
+    """Resolve/create the conversation, optionally build the history context,
+    store the user message, open a session — in that order: the context is
+    built BEFORE the current prompt is recorded, so the prompt never duplicates
+    into its own history.
+
+    ``inject_history`` defaults to **False**: DOZEN is a one-shot orchestrator.
+    Injecting prior turns made every planner prompt grow without bound — a long
+    tail of earlier failures ended up dwarfing the actual request, and models
+    answered the transcript instead of the task. Messages are still RECORDED
+    (that is what ``/api/conversation/{id}`` reads); they are simply never fed
+    back into a prompt. Pass ``inject_history=True`` only to exercise the
+    context builder directly.
 
     Runs BEFORE the workflow starts. Never raises: if persistence is broken,
     the run continues stateless with ``recording=False``, exactly as pre-1.3.
@@ -111,7 +121,11 @@ def prepare_run(
     try:
         service = get_service()
         cid, created = service.ensure_conversation(conversation_id, title_hint=prompt)
-        built = _build_context_safe(str(cid), prompt)
+        built = (
+            _build_context_safe(str(cid), prompt)
+            if inject_history
+            else _empty_context(str(cid))
+        )
         stored = service.record_user_message(
             cid, prompt, run_id=run_id, context=context, desired_output=desired_output
         )
@@ -133,6 +147,15 @@ def prepare_run(
             conversation_id=(conversation_id or ""), created=False,
             session=None, recording=False,
         )
+
+
+def _empty_context(conversation_id: str) -> BuiltContext:
+    """A stateless context — the one-shot default. No history is even read."""
+    return BuiltContext(
+        conversation_id=conversation_id, formatted_history="",
+        estimated_tokens=0, message_count=0, truncated=False,
+        fallback=False, fallback_reason=None,
+    )
 
 
 def _build_context_safe(conversation_id: str, prompt: str) -> BuiltContext:

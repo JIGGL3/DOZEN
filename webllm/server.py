@@ -305,7 +305,29 @@ def active() -> dict:
         "selected": state.providers,
         "ready": state.browser.active_providers(),
         "status": state.browser.login_status(),
+        # Providers a Stop left unsafe to reuse. Surfaced so the UI can explain
+        # why a model is refusing work and offer recovery, instead of the run
+        # failing later with an opaque "provider is quarantined" / "Browser job
+        # timed out". ``blocked`` is the union the UI acts on: quarantine is
+        # rejected at admission, a stale tab owner at the running claim, and
+        # either alone is enough to fail every run.
+        "quarantined": state.browser.quarantined_providers(),
+        "blocked": state.browser.blocked_providers(),
     }
+
+
+@app.post("/api/provider/recover")
+def provider_recover(req: ConfirmRequest) -> dict:
+    """Re-probe a quarantined provider and lift the quarantine if it is idle.
+
+    Observation only — never clicks stop, reloads, or restarts the tab. A
+    provider that is still generating stays quarantined and is reported as such.
+    """
+    if state.browser is None:
+        raise HTTPException(500, "Browser manager not initialised.")
+    if req.provider not in PROVIDERS:
+        raise HTTPException(404, f"Unknown provider {req.provider!r}.")
+    return state.browser.recover_provider(req.provider)
 
 
 @app.post("/api/provider/remove")
@@ -357,33 +379,51 @@ def run_task(req: RunRequest) -> dict:
     orchestrator = state.orchestrator
     started = False
     try:
-        # Conversation layer (Phase 1.3): resolve/create the conversation, store
-        # the user prompt, and (Phase 1.4) build the history context — all BEFORE
-        # the workflow starts.
+        # Conversation layer: resolve/create the conversation and store the user
+        # prompt BEFORE the workflow starts. Recording only — no history is read
+        # back into the prompt (``inject_history=False``, the one-shot default).
         conversation = prepare_run(
             prompt=req.prompt,
             conversation_id=req.conversation_id,
             run_id=channel.run_id,
             context=req.context,
             desired_output=req.desired_output,
+            inject_history=False,
         )
 
-        # Phase 1.4: the orchestrator now receives conversation context + the
-        # current prompt. History is only PREPENDED into Task.context — planner,
-        # executor and providers are untouched; empty history == stateless run.
+        # ONE-SHOT: only the caller's own context is passed. Conversation
+        # history is recorded but never fed back (see prepare_run), so the
+        # planner always sees just this request.
         task = Task(
             prompt=req.prompt,
-            context=compose_task_context(conversation.formatted_history, req.context),
+            context=compose_task_context("", req.context),
             desired_output=req.desired_output,
         )
-        if conversation.formatted_history:
-            note = f"Context: {conversation.context_messages} past messages injected (~{conversation.context_tokens} tokens)"
-            if conversation.context_truncated:
-                note += " — oldest messages trimmed to fit the budget"
-            channel.emit({"phase": "context", "status": "log", "icon": "🧠", "message": note})
 
         def _worker() -> None:
             try:
+                # A Stop quarantines any provider whose tab could not be PROVEN
+                # idle at interruption time. That verdict used to persist for the
+                # life of the session, so cancelling one run made the provider
+                # reject every later run ("provider is quarantined") until it was
+                # removed and re-added. Re-probe here — before planning, on the
+                # provider's own thread — so a tab that has since settled is
+                # usable again. A tab that is genuinely still busy stays
+                # quarantined; nothing is force-settled or restarted.
+                if state.browser is not None:
+                    for prov, outcome in state.browser.recover_quarantined().items():
+                        if outcome.get("recovered"):
+                            channel.emit({
+                                "phase": "recovery", "status": "log", "icon": "♻️",
+                                "message": f"{prov}: recovered from quarantine "
+                                           f"({outcome.get('reason', '')}) — tab is idle again.",
+                            })
+                        else:
+                            channel.emit({
+                                "phase": "recovery", "status": "warn", "icon": "⚠️",
+                                "message": f"{prov}: still quarantined "
+                                           f"({outcome.get('reason', '')}); its tab is not idle yet.",
+                            })
                 result = orchestrator.run(task, cancel, channel.emit)
                 # Store the assistant response before announcing the result.
                 safe_error = sanitize_diagnostic(result.error) if result.error else ""

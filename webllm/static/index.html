@@ -1278,19 +1278,24 @@ function renderDrawer() {
 
 function drawerRow(key, i) {
   const p = S.byKey[key], a = S.active[key];
-  const pill = {
-    connecting: ['<span class="spinner"></span> Waiting for login…', "pill-wait"],
-    ready: ["● Ready", "pill-ok"],
-    error: ["▲ Action needed", "pill-err"],
-  }[a.status] || ["Idle", "pill-idle"];
+  const pill = a.quarantined
+    ? ["⏸ Paused after stop", "pill-err"]
+    : ({
+        connecting: ['<span class="spinner"></span> Waiting for login…', "pill-wait"],
+        ready: ["● Ready", "pill-ok"],
+        error: ["▲ Action needed", "pill-err"],
+      }[a.status] || ["Idle", "pill-idle"]);
   // A recorded launch error means there is no window to confirm — the useful
   // action is to try opening it again, not to re-check a session that
-  // never existed.
-  const confirmBtn = a.status === "ready" ? "" : (a.error
-    ? `<button onclick="retryLogin('${key}')" class="mini-btn">Retry login window</button>`
-    : `<button onclick="confirmProvider('${key}')" class="mini-btn">Confirm login</button>`);
-  const why = a.error
-    ? `<div class="pool-why">${esc(a.error)}</div>` : "";
+  // never existed. A quarantined tab needs neither: it needs re-probing.
+  const confirmBtn = a.quarantined
+    ? `<button onclick="recoverProvider('${key}')" class="mini-btn">Recover this model</button>`
+    : (a.status === "ready" ? "" : (a.error
+      ? `<button onclick="retryLogin('${key}')" class="mini-btn">Retry login window</button>`
+      : `<button onclick="confirmProvider('${key}')" class="mini-btn">Confirm login</button>`));
+  const why = a.quarantined
+    ? `<div class="pool-why">Paused after a stopped run — this tab wasn&rsquo;t confirmed idle, so it&rsquo;s refusing new work. Recovery is also attempted automatically on your next run.</div>`
+    : (a.error ? `<div class="pool-why">${esc(a.error)}</div>` : "");
   return `<div id="row-${key}" class="pool-row" style="--d:${Math.min((i || 0) * 60, 420)}ms">
     <div class="pool-row-main">
       ${tile(p, "t-sm")}
@@ -1303,6 +1308,28 @@ function drawerRow(key, i) {
     </div>
     ${confirmBtn ? `<div style="margin-top:11px">${confirmBtn}</div>` : ""}
   </div>`;
+}
+
+// Ask the backend to re-probe a tab that a stopped run left quarantined. The
+// probe is observation-only, so the worst case is "still busy" — never a lost
+// session.
+async function recoverProvider(key) {
+  const p = S.byKey[key];
+  try {
+    const r = await api("/api/provider/recover", {
+      method: "POST", body: JSON.stringify({ provider: key }),
+    });
+    if (r.recovered) {
+      if (S.active[key]) S.active[key].quarantined = false;
+      toast(`<b>${esc(p.name)}</b> is back in the pool ✓`, "ok");
+    } else {
+      toast(`<b>${esc(p.name)}</b>: still busy (${esc(r.reason || "not idle")}). ` +
+            `Let its window finish, then try again.`, "err");
+    }
+  } catch (e) {
+    toast(`<b>${esc(p.name)}</b>: ${esc(e.message)}`, "err");
+  }
+  await refreshActive().catch(() => {});
 }
 
 // Re-attempt the Playwright window launch after a recorded failure (the usual
@@ -1355,6 +1382,9 @@ async function removeProvider(key) {
 
 async function refreshActive() {
   const r = await api("/api/active");
+  // "blocked" = needs recovery for ANY reason (quarantine or a stale tab owner);
+  // fall back to the older field so a mid-upgrade server still reports.
+  const quarantined = r.blocked || r.quarantined || [];
   (r.status ? Object.keys(r.status) : []).forEach(k => {
     if (!S.byKey[k]) return;
     const st = r.status[k];
@@ -1366,7 +1396,13 @@ async function refreshActive() {
     else if (st.error) status = "error";
     else if (S.active[k] && S.active[k].status === "error") status = "error";
     else status = "connecting";
-    S.active[k] = { status, name: st.name, error: st.error || "" };
+    S.active[k] = {
+      status, name: st.name, error: st.error || "",
+      // Quarantined = a Stop left this tab unproven, so it refuses new work
+      // until it is re-probed. Keep it visible rather than letting the next
+      // run fail with "provider is quarantined".
+      quarantined: quarantined.includes(k),
+    };
     if (st.error && !S.reportedLaunchErrors[k]) {
       S.reportedLaunchErrors[k] = true;
       toast(`<b>${esc(st.name)}</b>: couldn't open the login window — ${esc(st.error)}`, "err");
@@ -1482,16 +1518,18 @@ async function runTask() {
   let runId;
   try {
     await api("/api/orchestrator/ready", { method: "POST" }).catch(() => {});
-    // Conversation persistence (Phase 1.3): reuse the stored conversation id
-    // so every prompt/answer lands in the same on-disk conversation; the
-    // server returns the id (creating a conversation when needed).
-    const conversationId = localStorage.getItem("dozen.conversation_id") || "";
+    // ONE-SHOT ORCHESTRATOR: every run is its own fresh conversation.
+    // Reusing a stored conversation id made each prompt carry every earlier
+    // turn — including long runs of failure notices — until the planner's
+    // prompt was mostly history and models replied to the noise instead of
+    // the task. No id is sent and none is stored: each run starts clean.
     const r = await api("/api/run", {
       method: "POST",
-      body: JSON.stringify({ prompt, conversation_id: conversationId }),
+      body: JSON.stringify({ prompt }),
     });
     runId = r.run_id;
-    if (r.conversation_id) localStorage.setItem("dozen.conversation_id", r.conversation_id);
+    // Drop any id left over from before this became one-shot.
+    localStorage.removeItem("dozen.conversation_id");
   } catch (e) {
     $("run-error").textContent = e.message;
     runFinished = true;

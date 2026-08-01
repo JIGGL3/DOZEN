@@ -215,7 +215,13 @@ class TestSharedCorrectiveReplan(unittest.TestCase):
         plan = make_planner(client).plan(task(), 0, 2)
         self.assertIsNotNone(plan.artifact_plan)
         self.assertEqual(client.calls, 3)
-        self.assertIn("could not be parsed as JSON", client.prompts[1])
+        # The re-ask must both name the problem and restate the format demand.
+        # Assert against the exported constant so wording changes can't silently
+        # drop the demand itself.
+        from dozen.llm_client import JSON_ONLY_DEMAND
+
+        self.assertIn("could not be read as JSON", client.prompts[1])
+        self.assertIn(JSON_ONLY_DEMAND, client.prompts[1])
         self.assertNotIn("PREVIOUS PLAN WAS REJECTED", client.prompts[1])
         self.assertIn("PREVIOUS PLAN WAS REJECTED", client.prompts[2])
 

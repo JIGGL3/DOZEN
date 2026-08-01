@@ -156,6 +156,13 @@ class Orchestrator:
         # Every model call flows through the client, so giving it the token is
         # enough to make planner/router/verifier/synthesizer/workers cancelable.
         self.client.cancel_token = self._cancel
+        # Surface JSON re-asks in the live log. A model answering a structured
+        # request conversationally is otherwise invisible: the run just looks
+        # slow, then fails. Content-free — only the reply's shape is reported.
+        try:
+            self.client.on_json_format_retry = self._on_json_format_retry
+        except Exception:  # noqa: BLE001 - a client without the hook is fine
+            pass
 
         # Phase 3: THE orchestration boundary. Every entry path — library
         # callers, the FastAPI server, tests — passes through here, so the
@@ -199,7 +206,20 @@ class Orchestrator:
             )
         finally:
             self.client.cancel_token = NULL_TOKEN
+            try:
+                self.client.on_json_format_retry = None
+            except Exception:  # noqa: BLE001
+                pass
             self._on_event = lambda _e: None
+
+    def _on_json_format_retry(self, attempt: int, total: int, shape: str) -> None:
+        """Report one JSON re-ask to the live log (content-free)."""
+        self._log(f"[json] non-JSON reply ({shape}); re-asking {attempt + 1}/{total}")
+        self._emit(
+            phase="format-retry", status="log", icon="🔁",
+            message=f"A model replied without valid JSON ({shape}); "
+                    f"asking again ({attempt + 1} of {total}).",
+        )
 
     def _emit(self, **event) -> None:
         """Send one structured progress event to the sink (never raises)."""

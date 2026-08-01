@@ -202,5 +202,58 @@ class TestInterruptGeneration(unittest.TestCase):
         self.assertEqual(set(page.operation_idents), {t.ident})
 
 
+class TestProbeReusable(unittest.TestCase):
+    """The recovery counterpart: observation only, never an interaction.
+
+    Used to lift a quarantine left by a Stop that could not be proven safe, so
+    a cancelled run does not disable the provider for the rest of the session.
+    """
+
+    def test_idle_tab_is_reusable(self) -> None:
+        page = FakePage(stop_visible=False, composer_usable=True)
+        self.assertTrue(_OPENAI.probe_reusable(page, _FAST))
+
+    def test_generating_tab_is_not_reusable(self) -> None:
+        page = FakePage(stop_visible=True, composer_usable=True)
+        self.assertFalse(_OPENAI.probe_reusable(page, _FAST))
+
+    def test_unusable_composer_is_not_reusable(self) -> None:
+        page = FakePage(stop_visible=False, composer_usable=False)
+        self.assertFalse(_OPENAI.probe_reusable(page, _FAST))
+
+    def test_closed_page_is_not_reusable(self) -> None:
+        page = FakePage(stop_visible=False, page_closed=True)
+        self.assertFalse(_OPENAI.probe_reusable(page, _FAST))
+
+    def test_tab_that_settles_during_the_probe_becomes_reusable(self) -> None:
+        # Stop control disappears after the first poll.
+        page = FakePage(stop_visible=True, composer_usable=True, quiescence_after=1)
+        self.assertTrue(_OPENAI.probe_reusable(page, _FAST))
+
+    def test_probe_never_clicks_navigates_or_reloads(self) -> None:
+        for page in (
+            FakePage(stop_visible=True, composer_usable=True),
+            FakePage(stop_visible=False, composer_usable=True),
+        ):
+            _OPENAI.probe_reusable(page, _FAST)
+            self.assertEqual(page.clicks, 0)
+            self.assertEqual(page.goto_calls, 0)
+            self.assertEqual(page.reload_calls, 0)
+
+    def test_runs_synchronously_on_caller_thread(self) -> None:
+        page = FakePage(stop_visible=False, composer_usable=True)
+        seen = {}
+
+        def run() -> None:
+            _OPENAI.probe_reusable(page, _FAST)
+            seen["ident"] = threading.get_ident()
+
+        t = threading.Thread(target=run)
+        t.start()
+        t.join()
+        self.assertEqual(seen["ident"], t.ident)
+        self.assertEqual(set(page.operation_idents), {t.ident})
+
+
 if __name__ == "__main__":
     unittest.main()

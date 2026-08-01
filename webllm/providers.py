@@ -87,7 +87,22 @@ class WaitTuning:
     stability_ms: int = 1200
     # The observer runs inside the page in short slices so the Python side can
     # re-check the cancellation token between slices and stay responsive.
+    # NOTE: this is normally SHORTER than ``stability_ms``, so the stability
+    # window is measured across slices by the Python caller, never in-page.
     observer_slice_ms: int = 250
+    # LAST-RESORT net for a stop control that stays visible forever even though
+    # the selector looked trustworthy on the idle page. Deliberately far longer
+    # than any plausible mid-answer pause: modern models routinely think for
+    # tens of seconds BETWEEN tokens, and accepting a partial answer during such
+    # a pause is much worse than waiting. Untrustworthy selectors are detected
+    # up front (see ``_untrustworthy_stop_selectors``), so this should never
+    # fire in normal operation.
+    stalled_generation_grace_s: float = 180.0
+    # Quiet period required when there is NO trustworthy stop signal at all
+    # (the provider declares no stop control, or every selector already matched
+    # on the idle page). Text stability is then the only evidence generation has
+    # ended, so it must be a long window rather than ``stability_ms``.
+    no_stop_signal_stability_s: float = 30.0
 
 
 # In-page DOM -> Markdown serializer. Chat UIs RENDER model markdown into HTML,
@@ -266,6 +281,10 @@ class ProviderAdapter:
             self._last_response_text(page, resp_selector) if before > 0 else ""
         )
 
+        # Decide NOW, while the chat is provably idle, which stop selectors can
+        # be believed once generation starts.
+        stop_selectors = self._trustworthy_stop_selectors(page)
+
         # Phase 4G: Gemini submits through the deterministic state machine
         # (locate → insert → confirm insertion → send exactly once → confirm
         # acceptance). Every other provider keeps the generic inject+submit
@@ -286,7 +305,8 @@ class ProviderAdapter:
         # wait for it to stop changing, then scrape it. This is what breaks the
         # "keeps re-pasting the prompt" loop — we reliably know when it's done.
         text = self._await_response_via_observer(
-            page, resp_selector, before, before_text, cancel
+            page, resp_selector, before, before_text, cancel,
+            stop_selectors=stop_selectors,
         )
         if not text.strip():
             raise ProviderError(f"[{self.name}] Scraped an empty response.")
@@ -296,6 +316,23 @@ class ProviderAdapter:
     def _raise_if_cancelled(should_cancel: ShouldCancel) -> None:
         if should_cancel():
             raise CancelledError("Cancelled by user before completion.")
+
+    def _trustworthy_stop_selectors(self, page: "Page") -> list[str]:
+        """Stop selectors that can be believed as a "still generating" signal.
+
+        Measured on the IDLE page just before submitting, where nothing can be
+        generating. Any selector matching a visible element there is reporting a
+        false positive and is dropped — otherwise ``generating`` would be
+        permanently true and completion could only ever come from a timeout.
+        """
+        if not self.stop_button_selectors:
+            return []
+        try:
+            stuck = page.evaluate(self._STUCK_STOP_JS, self.stop_button_selectors)
+        except Exception:  # noqa: BLE001 - probe failure: trust nothing
+            return []
+        stuck_set = set(stuck or [])
+        return [s for s in self.stop_button_selectors if s not in stuck_set]
 
     # ------------------------------------------------------------------ #
     # Internal steps
@@ -394,6 +431,24 @@ class ProviderAdapter:
     # count we had before sending, and (b) has stopped mutating for a stability
     # window while the "stop generating" button is gone. It runs in short slices
     # so Python can re-check cancellation between them and never blocks the UI.
+    # Which of ``selectors`` already match a VISIBLE element right now. Run on
+    # the idle fresh chat before anything is submitted: nothing can be
+    # generating at that moment, so any selector that matches is a false
+    # positive for this UI (e.g. the generic ``button[aria-label*='Stop' i]``
+    # matching a permanent "Stop voice mode" control) and must not be used as a
+    # generating signal.
+    _STUCK_STOP_JS = r"""
+    (selectors) => {
+      const visible = (el) =>
+        !!el && !!(el.offsetParent || el.getClientRects().length) &&
+        getComputedStyle(el).visibility !== 'hidden';
+      return selectors.filter((s) => {
+        try { return Array.from(document.querySelectorAll(s)).some(visible); }
+        catch (e) { return false; }
+      });
+    }
+    """
+
     _OBSERVER_JS = r"""
     ({ respSelectors, stopSelectors, beforeCount, beforeText, stabilityMs, sliceMs }) => {
 """ + _TO_MD_JS + r"""
@@ -432,14 +487,28 @@ class ProviderAdapter:
         };
       };
 
+      // Whitespace-insensitive, matching the Python caller's compare exactly.
+      // A raw compare here would report "changed" for a cosmetic re-render
+      // (React re-paint, syntax highlighting, math/link hydration) that the
+      // caller considers identical, restarting its stability clock every slice
+      // and delaying pickup for as long as the page keeps repainting.
+      const __norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+
       return new Promise((resolve) => {
-        let lastText = readLast().text;
+        let lastText = __norm(readLast().text);
         let lastChange = Date.now();
         const started = Date.now();
+        // Did the answer text mutate at ANY point during this slice? The Python
+        // side owns the cross-slice stability clock (this promise is recreated
+        // every slice, so its own clock cannot measure a window longer than one
+        // slice) and needs to know about changes it would otherwise not see.
+        let changedDuringSlice = false;
 
         const obs = new MutationObserver(() => {
-          const { text } = readLast();
-          if (text !== lastText) { lastText = text; lastChange = Date.now(); }
+          const text = __norm(readLast().text);
+          if (text !== lastText) {
+            lastText = text; lastChange = Date.now(); changedDuringSlice = true;
+          }
         });
         obs.observe(document.body, {
           childList: true, subtree: true, characterData: true,
@@ -448,14 +517,23 @@ class ProviderAdapter:
         const finish = (status) => {
           obs.disconnect();
           const snap = readLast();
-          resolve({ status, text: snap.text, count: snap.count });
+          resolve({
+            status,
+            text: snap.text,
+            count: snap.count,
+            generating: stopActive(),
+            changed: changedDuringSlice,
+          });
         };
 
         const tick = () => {
           const now = Date.now();
           const snap = readLast();
           // Keep the change clock honest even if the observer missed a batch.
-          if (snap.text !== lastText) { lastText = snap.text; lastChange = now; }
+          const snapText = __norm(snap.text);
+          if (snapText !== lastText) {
+            lastText = snapText; lastChange = now; changedDuringSlice = true;
+          }
 
           const hasNewAnswer = isNewAnswer(snap);
           const generating = stopActive();
@@ -483,6 +561,8 @@ class ProviderAdapter:
         before: int,
         before_text: str,
         should_cancel: ShouldCancel,
+        *,
+        stop_selectors: Optional[list[str]] = None,
     ) -> str:
         resp_selectors = (
             [resp_selector] if resp_selector else []
@@ -491,9 +571,16 @@ class ProviderAdapter:
         seen: set[str] = set()
         resp_selectors = [s for s in resp_selectors if s and not (s in seen or seen.add(s))]
 
+        # Only selectors proven trustworthy on the idle page are used as the
+        # "still generating" signal (callers that skip the probe keep the full
+        # list, which is the historical behaviour).
+        if stop_selectors is None:
+            stop_selectors = list(self.stop_button_selectors)
+        stop_signal_trustworthy = bool(stop_selectors)
+
         payload = {
             "respSelectors": resp_selectors,
-            "stopSelectors": self.stop_button_selectors,
+            "stopSelectors": stop_selectors,
             "beforeCount": before,
             "beforeText": before_text,
             "stabilityMs": self.tuning.stability_ms,
@@ -507,8 +594,26 @@ class ProviderAdapter:
 
         deadline = time.time() + self.tuning.generation_timeout_s
         first_token_deadline = time.time() + self.tuning.first_token_timeout_s
+        # The stability window is measured HERE, not in the page. The in-page
+        # promise is recreated on every slice with a fresh clock, so it can only
+        # ever observe ``observer_slice_ms`` of stability — a longer
+        # ``stability_ms`` was therefore unreachable in-page and the answer was
+        # only ever returned by the generation timeout far below, which looked
+        # exactly like "the reply is never picked up".
+        stability_s = max(0.0, self.tuning.stability_ms / 1000.0)
+        # With a believable stop signal, "stop control gone" is the real end-of-
+        # generation evidence and a short quiet window is enough. Without one,
+        # text stability is the ONLY evidence, so it must be a long window — a
+        # model that pauses to think mid-answer would otherwise be cut off.
+        quiet_needed_s = (
+            stability_s if stop_signal_trustworthy
+            else max(stability_s, self.tuning.no_stop_signal_stability_s)
+        )
+        stall_grace_s = max(quiet_needed_s, self.tuning.stalled_generation_grace_s)
         last_text = ""
         saw_answer = False
+        stable_text: Optional[str] = None
+        stable_since = 0.0
 
         while time.time() < deadline:
             self._raise_if_cancelled(should_cancel)
@@ -519,16 +624,41 @@ class ProviderAdapter:
                 page.wait_for_timeout(120)
                 continue
 
-            status = (result or {}).get("status")
-            text = (result or {}).get("text") or ""
-            count = (result or {}).get("count")
+            result = result or {}
+            status = result.get("status")
+            text = result.get("text") or ""
+            count = result.get("count")
             if not isinstance(count, int):
                 count = 0
-            if is_new(text, count):
+            generating = bool(result.get("generating"))
+            changed_in_slice = bool(result.get("changed"))
+            now = time.time()
+            fresh = is_new(text, count)
+            if fresh:
                 last_text, saw_answer = text, True
 
-            if status == "done" and is_new(text, count):
+            # In-page fast path (only reachable when stability_ms <= slice_ms).
+            if status == "done" and fresh:
                 return text
+
+            if fresh and not changed_in_slice and norm(text) == norm(stable_text or ""):
+                held_for = now - stable_since
+                # Settled: text unchanged for the quiet window and the provider
+                # is no longer showing its stop control.
+                if not generating and held_for >= quiet_needed_s:
+                    return text
+                # Last resort only. The stop control looked trustworthy on the
+                # idle page yet has stayed visible for an implausibly long time
+                # with completely unchanged text. This is NOT a "the model is
+                # thinking" cut-off: the window is far longer than any real
+                # mid-answer pause, and untrustworthy selectors were already
+                # excluded before generation started.
+                if held_for >= stall_grace_s:
+                    return text
+            elif fresh:
+                stable_text, stable_since = text, now
+            else:
+                stable_text, stable_since = None, 0.0
 
             # No answer has appeared yet and we've blown the first-token budget.
             if not saw_answer and time.time() > first_token_deadline:
@@ -759,6 +889,47 @@ class ProviderAdapter:
                 )
             except Exception:
                 return None, StopActionStatus.NO_CONTROL, "page-unavailable-during-lookup"
+
+    def probe_reusable(self, page: "Page", policy: "InterruptionPolicy") -> bool:
+        """Read-only check that this tab is idle and safe to accept new work.
+
+        This is the recovery counterpart to :meth:`interrupt_generation`: it is
+        used *after* an interruption could not be proven safe, to ask whether the
+        tab has since settled on its own. It is strictly an OBSERVATION — it
+        clicks nothing (not even stop), navigates nowhere, closes/reloads
+        nothing, submits nothing, and reads no response content. Bounded by
+        ``policy.post_stop_grace_s``.
+
+        Unlike the post-click path this does not require the response text to
+        stabilise: a tab that has been sitting idle since an earlier stop may
+        legitimately have no response element to sample at all. Idleness here is
+        "the stop control is gone AND the composer accepts input", observed on
+        two consecutive polls so a momentary flicker can never lift a
+        quarantine.
+        """
+        try:
+            if page.is_closed():
+                return False
+        except Exception:  # noqa: BLE001 - an unusable page is not reusable
+            return False
+
+        deadline = time.monotonic() + policy.post_stop_grace_s
+        interval_ms = int(policy.quiescence_poll_interval_s * 1000)
+        stable_polls = 0
+        while True:
+            idle = not self._stop_button_visible(page, deadline)
+            if idle:
+                idle = self._composer_usable(page, deadline)
+            stable_polls = stable_polls + 1 if idle else 0
+            if stable_polls >= 2:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            try:
+                remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+                page.wait_for_timeout(min(interval_ms, remaining_ms))
+            except Exception:  # noqa: BLE001 - page went away mid-probe
+                return False
 
     def _await_stop_quiescence(
         self,

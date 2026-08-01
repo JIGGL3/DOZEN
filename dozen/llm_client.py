@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -68,11 +69,22 @@ class LLMClient:
         mock_handler: Optional[Callable[..., str]] = None,
         max_retries: int = 3,
         retry_backoff_s: float = 1.5,
+        json_format_retries: int = 5,
     ) -> None:
         self.mock = mock
         self.mock_handler = mock_handler
         self.max_retries = max_retries
         self.retry_backoff_s = retry_backoff_s
+        # How many times ``complete_json`` will RE-ASK a model that replied with
+        # something unparseable. This is deliberately its OWN budget, separate
+        # from ``max_retries``: a transport failure and a well-delivered but
+        # chatty answer are different problems, and a chat UI that drifts into
+        # prose ("It looks like you uploaded a file…") needs several firm,
+        # escalating re-asks before it is worth giving up on.
+        self.json_format_retries = max(1, int(json_format_retries))
+        # Optional observer: ``(attempt, total, reason) -> None``. Left unset the
+        # client reports re-asks to stderr so they are visible in the server log.
+        self.on_json_format_retry: Optional[Callable[[int, int, str], None]] = None
         # Cooperative cancellation. The orchestrator swaps in a live token at
         # the start of each run; until then this inert token is never tripped.
         self.cancel_token: CancelToken = NULL_TOKEN
@@ -146,15 +158,23 @@ class LLMClient:
     ) -> dict[str, Any]:
         """Like ``complete`` but parses a JSON object out of the response.
 
-        Tolerant of models that wrap JSON in prose or ```json fences. If the
-        reply cannot be parsed as JSON, re-prompt (up to ``max_retries``) with a
-        corrective instruction, since transport-level retries in ``complete`` do
-        not cover a well-delivered-but-malformed payload.
+        Tolerant of models that wrap JSON in prose or ```json fences. When the
+        reply still cannot be parsed, KEEP RE-ASKING — up to
+        ``json_format_retries`` times, with an escalating correction — because
+        transport retries in ``complete`` do not cover a well-delivered but
+        conversational answer. A chat UI that replies "It looks like you uploaded
+        a file, but there wasn't a question" has answered successfully at the
+        transport level and only a re-ask fixes it.
+
+        Transport failures are NOT retried here: ``complete`` already exhausted
+        its own attempts, so its ``LLMError`` propagates immediately. Only a
+        parse failure costs a re-ask.
         """
         attempt_messages = list(messages)
         last_err: Optional[Exception] = None
+        total = self.json_format_retries
 
-        for _ in range(self.max_retries):
+        for attempt in range(1, total + 1):
             resp = self.complete(
                 provider=provider,
                 model=model,
@@ -167,18 +187,30 @@ class LLMClient:
                 return _extract_json(resp.text)
             except LLMError as exc:
                 last_err = exc
-                # Show the model its bad reply and demand strict JSON next time.
-                attempt_messages = list(messages) + [
-                    LLMMessage("assistant", resp.text[:2000]),
-                    LLMMessage(
-                        "user",
-                        "Your previous reply could not be parsed as JSON. Reply "
-                        "with ONLY a single valid JSON object — no prose, no "
-                        "markdown, no code fences.",
-                    ),
-                ]
+                if attempt >= total:
+                    break
+                self._report_json_format_retry(attempt, total, resp.text)
+                attempt_messages = _json_retry_messages(
+                    messages, resp.text, attempt + 1
+                )
 
         raise last_err or LLMError("complete_json failed to produce valid JSON.")
+
+    def _report_json_format_retry(self, attempt: int, total: int, reply: str) -> None:
+        """Announce one re-ask. Content-free: no reply body, only its shape."""
+        shape = f"{len(reply.strip())} chars, starts {reply.strip()[:1]!r}"
+        if self.on_json_format_retry is not None:
+            try:
+                self.on_json_format_retry(attempt, total, shape)
+                return
+            except Exception:  # noqa: BLE001 - an observer must never break a run
+                pass
+        print(
+            f"[json] reply was not valid JSON ({shape}); re-asking "
+            f"({attempt + 1}/{total})",
+            file=sys.stderr,
+            flush=True,
+        )
 
     # ------------------------------------------------------------------ #
     # >>> WIRE YOUR REAL PROVIDER CALLS IN HERE <<<
@@ -440,6 +472,53 @@ def _first_balanced_object(text: str) -> Optional[str]:
             if depth == 0:
                 return text[start : j + 1]
     return None
+
+
+#: The single, blunt statement of the format requirement. Deliberately phrased
+#: as a plain user request (no persona/system framing) so consumer chat UIs do
+#: not read it as prompt injection and refuse it.
+JSON_ONLY_DEMAND = (
+    "Reply with ONLY one JSON object and nothing else. Do not add any "
+    "explanation, greeting, apology, markdown or code fences. The first "
+    "character of your reply must be { and the last must be }."
+)
+
+
+def _json_retry_messages(
+    original: list[LLMMessage], bad_reply: str, attempt: int
+) -> list[LLMMessage]:
+    """Build the next attempt's messages, escalating with each failure.
+
+    The escalation matters. Echoing a chatty reply back at a model can *anchor*
+    more of the same, so only the first correction quotes it; later attempts
+    drop the echo, and the last ones re-issue a MINIMAL clean request (system
+    instructions plus the actual ask) on the theory that a long polluted
+    exchange is itself why the model drifted.
+    """
+    system = [m for m in original if m.role == "system"]
+    asks = [m for m in original if m.role != "system"]
+
+    if attempt <= 2:
+        # First correction: show it what it did, then demand the format.
+        return list(original) + [
+            LLMMessage("assistant", bad_reply.strip()[:800]),
+            LLMMessage(
+                "user",
+                "That reply could not be read as JSON. " + JSON_ONLY_DEMAND,
+            ),
+        ]
+    if attempt == 3:
+        # Second: same context, no echo, firmer.
+        return list(original) + [
+            LLMMessage(
+                "user",
+                "Your last reply was not JSON. This is the only thing needed: "
+                + JSON_ONLY_DEMAND,
+            )
+        ]
+    # Final attempts: strip everything back to the instructions + the ask.
+    last_ask = asks[-1].content if asks else ""
+    return system + [LLMMessage("user", f"{last_ask}\n\n{JSON_ONLY_DEMAND}")]
 
 
 def _extract_json(text: str) -> dict[str, Any]:

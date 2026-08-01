@@ -1,6 +1,14 @@
 """Phase 1.4 integration: prepare_run builds context, compose_task_context
-frames it, the worker prompt carries it — the exact /api/run path minus the
-live browser step. Includes the manual acceptance tests as code."""
+frames it, the worker prompt carries it. Includes the manual acceptance tests
+as code.
+
+NOTE: DOZEN's /api/run path is now ONE-SHOT — ``prepare_run`` defaults to
+``inject_history=False`` and never feeds prior turns back into a prompt. The
+acceptance tests below therefore pass ``inject_history=True`` explicitly: they
+verify the context BUILDER still works (recall, restart persistence, per-
+conversation isolation, budget trimming), not the default run behaviour.
+``TestOneShotDefault`` covers the default.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +24,7 @@ from webllm import conversations as convmod
 from webllm.conversations import (
     compose_task_context,
     finish_run,
+    get_history,
     prepare_run,
     reset_service,
 )
@@ -50,7 +59,8 @@ class TestPrepareRunContext(IntegrationTestCase):
         finish_run(first, final_answer="Nice to meet you, John!")
 
         second = prepare_run(
-            prompt="What is my name?", conversation_id=first.conversation_id, run_id="r2"
+            prompt="What is my name?", conversation_id=first.conversation_id,
+            run_id="r2", inject_history=True,
         )
         self.assertEqual(second.context_messages, 2)
         self.assertEqual(
@@ -78,7 +88,8 @@ class TestPrepareRunContext(IntegrationTestCase):
         reset_service()  # server restart
 
         second = prepare_run(
-            prompt="What is my name?", conversation_id=first.conversation_id, run_id="r2"
+            prompt="What is my name?", conversation_id=first.conversation_id,
+            run_id="r2", inject_history=True,
         )
         self.assertIn("User: My name is John.", second.formatted_history)
 
@@ -88,8 +99,10 @@ class TestPrepareRunContext(IntegrationTestCase):
         b = prepare_run(prompt="Secret beta", conversation_id=None, run_id="b1")
         finish_run(b, final_answer="noted beta")
 
-        a2 = prepare_run(prompt="continue", conversation_id=a.conversation_id, run_id="a2")
-        b2 = prepare_run(prompt="continue", conversation_id=b.conversation_id, run_id="b2")
+        a2 = prepare_run(prompt="continue", conversation_id=a.conversation_id,
+                         run_id="a2", inject_history=True)
+        b2 = prepare_run(prompt="continue", conversation_id=b.conversation_id,
+                         run_id="b2", inject_history=True)
         self.assertIn("Secret alpha", a2.formatted_history)
         self.assertNotIn("Secret beta", a2.formatted_history)
         self.assertIn("Secret beta", b2.formatted_history)
@@ -107,7 +120,8 @@ class TestPrepareRunContext(IntegrationTestCase):
         os.environ[convmod._ENV_BUDGET] = "2000"
         try:
             reset_service()  # rebuild the builder with the small budget
-            probe = prepare_run(prompt="latest", conversation_id=cid, run_id="probe")
+            probe = prepare_run(prompt="latest", conversation_id=cid,
+                                run_id="probe", inject_history=True)
         finally:
             os.environ.pop(convmod._ENV_BUDGET, None)
             reset_service()
@@ -121,6 +135,67 @@ class TestPrepareRunContext(IntegrationTestCase):
         self.assertTrue(handle.created)            # new conversation
         self.assertEqual(handle.formatted_history, "")  # no phantom history
         self.assertTrue(handle.recording)
+
+
+class TestOneShotDefault(IntegrationTestCase):
+    """Every run is independent: history is recorded, never fed back.
+
+    Injecting prior turns let each prompt accumulate every earlier exchange —
+    including long runs of failure notices — until the planner's prompt was
+    mostly transcript and models answered the noise instead of the request.
+    """
+
+    def test_history_exists_but_is_not_injected_by_default(self) -> None:
+        first = prepare_run(prompt="My name is John.", conversation_id=None, run_id="r1")
+        finish_run(first, final_answer="Nice to meet you, John!")
+
+        second = prepare_run(
+            prompt="What is my name?", conversation_id=first.conversation_id, run_id="r2"
+        )
+        # Same conversation, and the earlier turn IS on disk...
+        self.assertEqual(second.conversation_id, first.conversation_id)
+        stored, err = get_history(first.conversation_id)
+        self.assertIsNone(err)
+        self.assertGreaterEqual(len(stored["messages"]), 2)
+        # ...but none of it reaches the prompt.
+        self.assertEqual(second.formatted_history, "")
+        self.assertEqual(second.context_messages, 0)
+        self.assertEqual(second.context_tokens, 0)
+        self.assertFalse(second.context_truncated)
+        self.assertIsNone(second.context_fallback_reason)
+
+    def test_task_context_carries_only_the_callers_own_context(self) -> None:
+        first = prepare_run(prompt="Secret alpha", conversation_id=None, run_id="a1")
+        finish_run(first, final_answer="noted alpha")
+        second = prepare_run(
+            prompt="continue", conversation_id=first.conversation_id, run_id="a2"
+        )
+
+        # Exactly what the server builds for the orchestrator.
+        task = Task(prompt="continue",
+                    context=compose_task_context(second.formatted_history, "release notes v2"))
+        self.assertNotIn("Secret alpha", task.context)
+        self.assertNotIn("PREVIOUS CONVERSATION", task.context)
+        self.assertEqual(task.context, "release notes v2")
+        # And nothing leaks through the planner prompt either.
+        planner_user = build_planner_messages(task, 0, 2, "gpt (general)")[1].content
+        self.assertNotIn("Secret alpha", planner_user)
+        self.assertNotIn("PREVIOUS CONVERSATION", planner_user)
+
+    def test_a_long_failure_history_never_reaches_the_planner(self) -> None:
+        """The reported failure mode, as a test."""
+        cid = None
+        for i in range(20):
+            h = prepare_run(prompt="hey", conversation_id=cid, run_id=f"r{i}")
+            cid = h.conversation_id
+            finish_run(h, final_answer="", error="Planning failed: provider is quarantined")
+
+        latest = prepare_run(prompt="hey", conversation_id=cid, run_id="final")
+        self.assertEqual(latest.formatted_history, "")
+        task = Task(prompt="hey", context=compose_task_context(latest.formatted_history))
+        planner_user = build_planner_messages(task, 0, 2, "gpt (general)")[1].content
+        self.assertNotIn("quarantined", planner_user)
+        self.assertNotIn("no answer produced", planner_user)
 
 
 class TestComposeTaskContext(unittest.TestCase):

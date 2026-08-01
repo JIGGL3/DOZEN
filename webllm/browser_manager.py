@@ -377,14 +377,31 @@ class BrowserManager:
                 pass
 
         # Atomic claim. Fails if the job was TIMED_OUT / CANCELLED / ABANDONED
-        # while queued — in which case we settle it and skip submission.
-        if not reg.mark_running(jid).transitioned:
+        # while queued, or if the provider's tab is still physically owned by an
+        # earlier job — in which case we settle it and skip submission.
+        claim = reg.mark_running(jid)
+        if not claim.transitioned:
             # The prompt was never submitted, so no browser action is needed even
             # if cancellation/timeout requested one while the job sat queued.
             if job.interruption is not None:
                 job.interruption.complete(
                     InterruptionOutcome.NOT_NEEDED, "not-runnable-at-claim"
                 )
+            if claim.reason == "provider-busy":
+                # An earlier job still owns this provider's tab — typically a
+                # stopped run whose generation could not be confirmed finished,
+                # since ownership is released only by physical settlement.
+                # Reporting this as "Browser job timed out" was actively
+                # misleading: nothing waited (the failure is instantaneous) and
+                # it blamed the new job for a predecessor that never unwound.
+                # Name the real condition so the fix is obvious.
+                with job.result_lock:
+                    job.error = ProviderError(
+                        f"{job.provider} is still busy with an earlier browser job "
+                        "that never finished, so this prompt was never sent. Use "
+                        "'Recover this model' in My Active Models (or remove "
+                        "and re-add it) to release the tab."
+                    )
             reg.mark_physical_settled(jid, reason="not-runnable-at-claim")
             job.done.set()
             job.physical_done.set()
@@ -1157,6 +1174,141 @@ class BrowserManager:
     def is_quarantined(self, provider: str) -> bool:
         with self._admission_lock:
             return provider in self._quarantined
+
+    def quarantined_providers(self) -> list[str]:
+        with self._admission_lock:
+            return sorted(self._quarantined)
+
+    def _needs_recovery(self, provider: str) -> bool:
+        """True when ``provider`` will refuse work until it is recovered.
+
+        Two independent symptoms of the same stopped-run event, and either alone
+        is enough to block every later prompt: the quarantine flag (rejected at
+        admission) and a stale physical tab owner (rejected at the running
+        claim). Recovering only the first would just swap one opaque failure for
+        the other.
+        """
+        return self.is_quarantined(provider) or self._stale_owner(provider) is not None
+
+    def blocked_providers(self) -> list[str]:
+        """Every provider that needs recovery before it can accept work."""
+        with self._sessions_lock:
+            keys = set(self._sessions)
+        keys.update(self.quarantined_providers())
+        return sorted(p for p in keys if self._needs_recovery(p))
+
+    def _stale_owner(self, provider: str) -> Optional[str]:
+        """The job id holding ``provider``'s slot that will never release it.
+
+        Provider ownership is physical and is released ONLY by physical
+        settlement, so a job that reached a terminal state without proven
+        quiescence keeps owning the tab forever; every later job then fails its
+        ``mark_running`` claim with ``provider-busy``.
+
+        A job still in ``RUNNING`` is deliberately NOT stale — its worker thread
+        may be mid-Playwright-call on that very tab, and releasing it would admit
+        a second prompt into a tab another thread is driving. Only a
+        logically-terminal, physically-unsettled owner qualifies.
+        """
+        stale = self._registry.active_job(provider)
+        if stale is None:
+            return None
+        snap = self._registry.snapshot(stale)
+        if snap is None or snap.physical_settled:
+            return None
+        if snap.state == JobState.RUNNING.value:
+            return None
+        return stale
+
+    def _release_stale_owner(self, provider: str) -> Optional[str]:
+        """Settle a stale owner so the provider slot is free again.
+
+        Call only once the tab has been PROVEN idle — at that point the old job
+        demonstrably owns nothing real.
+        """
+        stale = self._stale_owner(provider)
+        if stale is None:
+            return None
+        self._registry.mark_physical_settled(stale, reason="recovered-idle")
+        return stale
+
+    def _recover_one(self, provider: str) -> dict[str, Any]:
+        """Worker-thread half of :meth:`recover_provider` (Playwright-affine).
+
+        Observation only: it asks the adapter whether the tab has settled and
+        lifts the quarantine if so. It never clicks stop, never reloads, never
+        restarts the tab and never force-settles the interrupted job — the
+        Phase 5B/5C invariants are unchanged. If the tab is still busy the
+        quarantine simply stays in place.
+        """
+        if not self._needs_recovery(provider):
+            return {"provider": provider, "recovered": True, "reason": "not-quarantined"}
+        with self._sessions_lock:
+            sess = self._sessions.get(provider)
+        # No live tab means nothing can still be generating on it: the next use
+        # launches a fresh context from the saved profile, so reuse is safe.
+        if not self._session_alive(sess):
+            released = self._release_stale_owner(provider)
+            self._clear_quarantine(provider)
+            return {
+                "provider": provider, "recovered": True,
+                "reason": "no-live-session", "released_job": released,
+            }
+        try:
+            reusable = sess.adapter.probe_reusable(sess.page, self._interruption_policy)
+        except Exception as exc:  # noqa: BLE001 - a failed probe is not a recovery
+            return {
+                "provider": provider,
+                "recovered": False,
+                "reason": f"probe-error:{type(exc).__name__}",
+            }
+        if not reusable:
+            return {"provider": provider, "recovered": False, "reason": "still-busy"}
+        # Clearing the quarantine alone is NOT enough: the dead job still owns
+        # the provider slot, so the very next prompt would fail its claim with
+        # "provider-busy". Release both, in that order.
+        released = self._release_stale_owner(provider)
+        self._clear_quarantine(provider)
+        return {
+            "provider": provider, "recovered": True,
+            "reason": "probed-idle", "released_job": released,
+        }
+
+    def recover_provider(self, provider: str, *, timeout: float = 120.0) -> dict[str, Any]:
+        """Lift ``provider``'s quarantine if its tab has since gone idle.
+
+        A stop that could not be *proven* safe quarantines the provider so new
+        prompts are not queued behind a possibly-still-generating tab. Without a
+        recovery path that verdict was permanent for the life of the session —
+        one Stop made the provider unusable until it was removed and re-added.
+        This re-checks the tab and clears the quarantine when it is demonstrably
+        idle. Runs on the provider's own worker thread.
+        """
+        if not self._needs_recovery(provider):
+            return {"provider": provider, "recovered": True, "reason": "not-quarantined"}
+        try:
+            return self._submit_to(
+                provider, lambda: self._recover_one(provider), timeout=timeout
+            )
+        except Exception as exc:  # noqa: BLE001 - report, never raise into a run
+            return {
+                "provider": provider,
+                "recovered": False,
+                "reason": f"recovery-failed:{type(exc).__name__}",
+            }
+
+    def recover_quarantined(self, providers: Optional[list[str]] = None) -> dict[str, Any]:
+        """Attempt recovery for every quarantined provider; report the outcomes.
+
+        Safe to call when nothing is quarantined (returns an empty map), and
+        never raises — a provider that cannot be recovered stays quarantined and
+        is reported as such.
+        """
+        targets = [
+            p for p in (providers if providers is not None else self.blocked_providers())
+            if self._needs_recovery(p)
+        ]
+        return {p: self.recover_provider(p) for p in targets}
 
     # ------------------------------------------------------------------ #
     # Content-free queue observability events (Phase 5C)
